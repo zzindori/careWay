@@ -3,7 +3,8 @@ name: CareWay 복지서비스 배치
 on:
   # 매월 1일 오전 2시 (KST = UTC+9 → UTC 17:00 전날)
   schedule:
-    - cron: '0 17 28 * *'
+    - cron: '0 17 28 * *'   # 매월 28일 02:00 KST
+    - cron: '0 19 8 4 *'    # 2026-04-09 04:00 KST (일회성)
 
   # 수동 실행 (phase 선택 가능)
   workflow_dispatch:
@@ -23,7 +24,7 @@ jobs:
   batch:
     name: 복지서비스 데이터 수집 & AI 분류
     runs-on: ubuntu-latest
-    timeout-minutes: 120  # Phase2 폴링 포함 최대 2시간
+    timeout-minutes: 150  # Phase0 Detail(90분) + Phase1(8분) + Phase2 일부
 
     steps:
       - name: 코드 체크아웃

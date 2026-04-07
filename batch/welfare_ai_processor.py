@@ -47,7 +47,7 @@ import requests
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-import google.generativeai as genai
+from google import genai as google_genai
 from supabase import create_client
 
 # ── 설정 ──────────────────────────────────────────────────────────────────────
@@ -63,8 +63,8 @@ WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/NationalWelfareInformation
 LOCAL_WELFARE_LIST_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfareSList"
 LOCAL_WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfaredetailed"
 
-MODEL = "gemini-1.5-flash"
-API_REQUEST_DELAY = 0.3    # 복지로 API rate limit 방지
+MODEL = "gemini-2.0-flash"
+API_REQUEST_DELAY = 1.2    # 복지로 API rate limit 방지 (개발계정 100 RPM → 최소 0.6초, 여유분 포함)
 GEMINI_DELAY = 4.5         # Gemini 무료 티어: 15 RPM → 4초 간격
 
 # ── 환경변수 체크 ──────────────────────────────────────────────────────────────
@@ -227,36 +227,46 @@ def fetch_welfare_detail(welfare_id: str) -> dict | None:
         "servId": welfare_id,
         "callTp": "D",
     }
-    try:
-        resp = requests.get(WELFARE_DETAIL_URL, params=params, timeout=10)
-        resp.raise_for_status()
-        root = ET.fromstring(resp.text)
+    for attempt in range(3):
+        try:
+            resp = requests.get(WELFARE_DETAIL_URL, params=params, timeout=10)
+            if resp.status_code == 429:
+                wait = 60 * (attempt + 1)
+                print(f"\n      ⚠ 429 → {wait}초 대기 후 재시도...", flush=True)
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
 
-        def txt(tag):
-            el = root.find(f".//{tag}")
-            return (el.text or "").strip() if el is not None else ""
+            root = ET.fromstring(resp.text)
 
-        applmet_list = []
-        for item in root.findall(".//applmetList"):
-            method = txt_from(item, "applmetNm")
-            desc = txt_from(item, "servSeDetailLink")
-            if method:
-                applmet_list.append({"method": method, "description": desc})
+            def txt(tag):
+                el = root.find(f".//{tag}")
+                return (el.text or "").strip() if el is not None else ""
 
-        detail_parts = []
-        for tag in ["trgtList", "aplyMtd", "servDgst", "bsnsSumry", "servDtlLink"]:
-            val = txt(tag)
-            if val:
-                detail_parts.append(val)
+            applmet_list = []
+            for item in root.findall(".//applmetList"):
+                method = txt_from(item, "applmetNm")
+                desc = txt_from(item, "servSeDetailLink")
+                if method:
+                    applmet_list.append({"method": method, "description": desc})
 
-        return {
-            "applmet_list": applmet_list,
-            "inq_place": txt("inqplCn"),
-            "detail_content": "\n".join(detail_parts),
-        }
-    except Exception as e:
-        print(f"      API 오류 ({welfare_id}): {e}")
-        return None
+            detail_parts = []
+            for tag in ["trgtList", "aplyMtd", "servDgst", "bsnsSumry", "servDtlLink"]:
+                val = txt(tag)
+                if val:
+                    detail_parts.append(val)
+
+            return {
+                "applmet_list": applmet_list,
+                "inq_place": txt("inqplCn"),
+                "detail_content": "\n".join(detail_parts),
+            }
+
+        except Exception as e:
+            print(f"      API 오류 ({welfare_id}): {e}")
+            return None
+
+    return None
 
 
 def txt_from(element, tag: str) -> str:
@@ -410,8 +420,7 @@ def run_phase2(supabase) -> int:
     print(f"  처리 대상: {len(services)}개 (모델: {MODEL})")
     print(f"  예상 소요시간: 약 {len(services) * GEMINI_DELAY / 60:.0f}분")
 
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(MODEL)
+    genai_client = google_genai.Client(api_key=GEMINI_API_KEY)
 
     ok = fail = parse_err = 0
 
@@ -420,7 +429,9 @@ def run_phase2(supabase) -> int:
         print(f"  [{i+1}/{len(services)}] {name_short}... ", end="", flush=True)
 
         try:
-            response = model.generate_content(make_prompt(svc))
+            response = genai_client.models.generate_content(
+                model=MODEL, contents=make_prompt(svc)
+            )
             criteria = parse_json_response(response.text)
 
             if criteria is None:

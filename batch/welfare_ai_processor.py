@@ -2,6 +2,7 @@
 """
 CareWay 복지서비스 통합 배치 파이프라인
 ========================================
+Phase 0: 지자체복지서비스 목록 수집 → DB 신규 등록
 Phase 1: 복지로 API 상세 조회 → DB 저장 (신청방법, 문의처, 상세내용)
 Phase 2: Gemini AI 분류 → DB 저장 (target_age_group, 필터 조건)
 
@@ -58,6 +59,10 @@ WELFARE_API_KEY = os.environ.get("WELFARE_API_KEY", "")
 
 WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/NationalWelfareInformationsV001/NationalWelfaredetailedV001"
 
+# 지자체복지서비스 API (한국사회보장정보원, 동일 제공기관 B554287)
+LOCAL_WELFARE_LIST_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfareSList"
+LOCAL_WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfaredetailed"
+
 MODEL = "gemini-1.5-flash"
 API_REQUEST_DELAY = 0.3    # 복지로 API rate limit 방지
 GEMINI_DELAY = 4.5         # Gemini 무료 티어: 15 RPM → 4초 간격
@@ -75,6 +80,127 @@ def validate_env():
     if missing:
         print(f"❌ 환경변수 미설정: {', '.join(missing)}")
         sys.exit(1)
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# PHASE 0: 지자체복지서비스 목록 수집 → DB 신규 등록
+# ════════════════════════════════════════════════════════════════════════════════
+
+CATEGORY_MAP = {
+    "01": "medical",   # 건강
+    "02": "care",      # 돌봄
+    "03": "living",    # 생활지원
+    "04": "housing",   # 주거
+    "05": "finance",   # 경제
+    "06": "mobility",  # 이동
+    "07": "living",    # 교육 → 생활
+    "08": "living",    # 문화여가 → 생활
+}
+
+
+def fetch_local_welfare_list(page: int, num_rows: int = 100) -> list:
+    """지자체복지서비스 목록 1페이지 조회"""
+    try:
+        resp = requests.get(LOCAL_WELFARE_LIST_URL, params={
+            "serviceKey": WELFARE_API_KEY,
+            "callTp": "L",
+            "pageIndex": page,
+            "numOfRows": num_rows,
+        }, timeout=15)
+        resp.raise_for_status()
+        root = ET.fromstring(resp.text)
+
+        items = []
+        for item in root.findall(".//servList") or root.findall(".//list"):
+            def g(tag):
+                el = item.find(tag)
+                return (el.text or "").strip() if el is not None else ""
+
+            items.append({
+                "id": g("wlfareInfoId") or g("servId"),
+                "name": g("wlfareSvcNm") or g("servNm"),
+                "category": CATEGORY_MAP.get(g("lifeArray") or g("category"), "living"),
+                "description": g("servDgst") or g("summary"),
+                "target_info": g("tgtrDscr") or g("target"),
+                "benefit_info": g("givBnfScpCn") or g("benefit"),
+                "apply_place": g("aplyMtd") or g("applyMethod"),
+                "online_url": g("svcfrstRegDt"),  # 신청 URL 없으면 빈 값
+                "source": "local",
+            })
+
+        # 총 건수 파악
+        total_el = root.find(".//totalCount") or root.find(".//totCnt")
+        total = int(total_el.text) if total_el is not None and total_el.text else 0
+        return items, total
+
+    except Exception as e:
+        print(f"    목록 조회 오류 (page {page}): {e}")
+        return [], 0
+
+
+def run_phase0(supabase) -> int:
+    """Phase 0: 지자체복지서비스 전체 목록 수집 → welfare_services 신규 등록"""
+    print("\n━━━ PHASE 0: 지자체복지서비스 수집 ━━━")
+
+    # 기존 ID 목록 (중복 방지)
+    existing = supabase.table("welfare_services").select("id").execute()
+    existing_ids = {r["id"] for r in existing.data}
+    print(f"  기존 서비스: {len(existing_ids)}개")
+
+    page, num_rows = 1, 100
+    total_new = total_skip = 0
+
+    while True:
+        print(f"  페이지 {page} 조회 중...", end="", flush=True)
+        items, total_count = fetch_local_welfare_list(page, num_rows)
+
+        if not items:
+            break
+
+        if page == 1:
+            print(f" 총 {total_count}개 서비스 발견")
+
+        new_items = [it for it in items if it["id"] and it["id"] not in existing_ids]
+        skip_items = len(items) - len(new_items)
+        total_skip += skip_items
+
+        for it in new_items:
+            if not it["name"]:
+                continue
+            try:
+                supabase.table("welfare_services").insert({
+                    "id": it["id"],
+                    "name": it["name"],
+                    "category": it["category"],
+                    "description": it["description"] or it["name"],
+                    "target_info": it["target_info"],
+                    "benefit_info": it["benefit_info"],
+                    "apply_place": it["apply_place"],
+                    "online_url": it["online_url"] or None,
+                    "difficulty": 2,
+                    "is_renewable": False,
+                    "min_age": 0,
+                    "max_income_level": 10,
+                    "requires_ltc_grade": False,
+                    "requires_alone": False,
+                    "requires_basic_recipient": False,
+                    "target_age_group": "unknown",
+                }).execute()
+                existing_ids.add(it["id"])
+                total_new += 1
+            except Exception as e:
+                if "duplicate" not in str(e).lower():
+                    print(f"\n    ⚠ 삽입 오류 ({it['id']}): {e}")
+
+        print(f"  → 신규 {len(new_items)}개 등록, 중복 {skip_items}개 스킵")
+        time.sleep(API_REQUEST_DELAY)
+
+        if page * num_rows >= total_count:
+            break
+        page += 1
+
+    print(f"\n  Phase 0 완료: 신규 등록={total_new}, 중복 스킵={total_skip}")
+    return total_new
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -337,9 +463,11 @@ def main(phase: int | None = None):
     print("  CareWay 복지서비스 배치 파이프라인")
     print("=" * 60)
 
-    if phase != 2:
+    if phase is None or phase == 0:
+        run_phase0(supabase)
+    if phase is None or phase == 1:
         run_phase1(supabase)
-    if phase != 1:
+    if phase is None or phase == 2:
         run_phase2(supabase)
 
     print("\n🎉 배치 완료! 앱을 재시작하면 업데이트된 데이터가 반영됩니다.")

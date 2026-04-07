@@ -1,0 +1,60 @@
+name: careway
+description: "CareWay - 부모님 복지 혜택 매니저"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # UI
+  cupertino_icons: ^1.0.8
+
+  # Navigation
+  go_router: ^14.0.0
+
+  # State management
+  provider: ^6.1.5+1
+
+  # Backend (Supabase)
+  supabase_flutter: ^2.8.0
+
+  # HTTP (외부 API 호출)
+  http: ^1.2.2
+
+  # XML 파싱 (복지로 API)
+  xml: ^6.5.0
+
+  # Local storage
+  shared_preferences: ^2.2.3
+  flutter_secure_storage: ^9.2.2
+
+  # Localization
+  intl: ^0.20.2
+
+  # URL 열기 (복지 신청 링크)
+  url_launcher: ^6.3.0
+
+  # 로컬 알림
+  flutter_local_notifications: ^18.0.0
+
+  # 이미지 캐싱
+  cached_network_image: ^3.4.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.2
+
+flutter:
+  uses-material-design: true
+  generate: true
+
+  assets:
+    - assets/images/
+    - assets/icons/

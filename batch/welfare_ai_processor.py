@@ -61,7 +61,7 @@ LOCAL_WELFARE_API_KEY = os.environ.get("LOCAL_WELFARE_API_KEY", "")
 WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/NationalWelfareInformationsV001/NationalWelfaredetailedV001"
 
 # 지자체복지서비스 API (한국사회보장정보원, 동일 제공기관 B554287)
-LOCAL_WELFARE_LIST_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfareSList"
+LOCAL_WELFARE_LIST_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfarelist"
 LOCAL_WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfaredetailed"
 
 MODEL = "gemini-2.0-flash"
@@ -106,8 +106,7 @@ def fetch_local_welfare_list(page: int, num_rows: int = 100) -> list:
     try:
         resp = requests.get(LOCAL_WELFARE_LIST_URL, params={
             "serviceKey": LOCAL_WELFARE_API_KEY,
-            "callTp": "L",
-            "pageIndex": page,
+            "pageNo": page,
             "numOfRows": num_rows,
         }, timeout=15)
         resp.raise_for_status()

@@ -118,15 +118,15 @@ def fetch_local_welfare_list(page: int, num_rows: int = 100) -> list:
                 el = item.find(tag)
                 return (el.text or "").strip() if el is not None else ""
 
+            serv_id = g("wlfareInfoId") or g("servId")
             items.append({
-                "id": g("wlfareInfoId") or g("servId"),
+                "serv_id": serv_id,           # 중복 체크용, insert 때 online_url에 저장
                 "name": g("wlfareSvcNm") or g("servNm"),
                 "category": CATEGORY_MAP.get(g("lifeArray") or g("category"), "living"),
                 "description": g("servDgst") or g("summary"),
                 "target_info": g("tgtrDscr") or g("target"),
                 "benefit_info": g("givBnfScpCn") or g("benefit"),
                 "apply_place": g("aplyMtd") or g("applyMethod"),
-                "online_url": g("svcfrstRegDt"),  # 신청 URL 없으면 빈 값
                 "source": "local",
             })
 
@@ -144,9 +144,9 @@ def run_phase0(supabase) -> int:
     """Phase 0: 지자체복지서비스 전체 목록 수집 → welfare_services 신규 등록"""
     print("\n━━━ PHASE 0: 지자체복지서비스 수집 ━━━")
 
-    # 기존 ID 목록 (중복 방지)
-    existing = supabase.table("welfare_services").select("id").execute()
-    existing_ids = {r["id"] for r in existing.data}
+    # 기존 지자체 서비스 ID 목록 (online_url에 저장된 WLF ID로 중복 체크)
+    existing = supabase.table("welfare_services").select("online_url").eq("source", "local").execute()
+    existing_ids = {r["online_url"] for r in existing.data if r.get("online_url")}
     print(f"  기존 서비스: {len(existing_ids)}개")
 
     page, num_rows = 1, 100
@@ -162,7 +162,7 @@ def run_phase0(supabase) -> int:
         if page == 1:
             print(f" 총 {total_count}개 서비스 발견")
 
-        new_items = [it for it in items if it["id"] and it["id"] not in existing_ids]
+        new_items = [it for it in items if it["serv_id"] and it["serv_id"] not in existing_ids]
         skip_items = len(items) - len(new_items)
         total_skip += skip_items
 
@@ -171,14 +171,13 @@ def run_phase0(supabase) -> int:
                 continue
             try:
                 supabase.table("welfare_services").insert({
-                    "id": it["id"],
                     "name": it["name"],
                     "category": it["category"],
                     "description": it["description"] or it["name"],
                     "target_info": it["target_info"],
                     "benefit_info": it["benefit_info"],
                     "apply_place": it["apply_place"],
-                    "online_url": it["online_url"] or None,
+                    "online_url": it["serv_id"],   # WLF ID → 중복방지 및 상세조회용
                     "difficulty": 2,
                     "is_renewable": False,
                     "min_age": 0,
@@ -187,12 +186,13 @@ def run_phase0(supabase) -> int:
                     "requires_alone": False,
                     "requires_basic_recipient": False,
                     "target_age_group": "unknown",
+                    "source": "local",
                 }).execute()
-                existing_ids.add(it["id"])
+                existing_ids.add(it["serv_id"])
                 total_new += 1
             except Exception as e:
                 if "duplicate" not in str(e).lower():
-                    print(f"\n    ⚠ 삽입 오류 ({it['id']}): {e}")
+                    print(f"\n    ⚠ 삽입 오류 ({it['serv_id']}): {e}")
 
         print(f"  → 신규 {len(new_items)}개 등록, 중복 {skip_items}개 스킵")
         time.sleep(API_REQUEST_DELAY)

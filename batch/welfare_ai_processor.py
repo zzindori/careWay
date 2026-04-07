@@ -56,6 +56,7 @@ SUPABASE_URL = "https://dnnidnqwkjmbssxixpjg.supabase.co"
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 WELFARE_API_KEY = os.environ.get("WELFARE_API_KEY", "")
+LOCAL_WELFARE_API_KEY = os.environ.get("LOCAL_WELFARE_API_KEY", "")
 
 WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/NationalWelfareInformationsV001/NationalWelfaredetailedV001"
 
@@ -77,6 +78,8 @@ def validate_env():
         missing.append("GEMINI_API_KEY")
     if not WELFARE_API_KEY:
         missing.append("WELFARE_API_KEY")
+    if not LOCAL_WELFARE_API_KEY:
+        missing.append("LOCAL_WELFARE_API_KEY")
     if missing:
         print(f"❌ 환경변수 미설정: {', '.join(missing)}")
         sys.exit(1)
@@ -102,7 +105,7 @@ def fetch_local_welfare_list(page: int, num_rows: int = 100) -> list:
     """지자체복지서비스 목록 1페이지 조회"""
     try:
         resp = requests.get(LOCAL_WELFARE_LIST_URL, params={
-            "serviceKey": WELFARE_API_KEY,
+            "serviceKey": LOCAL_WELFARE_API_KEY,
             "callTp": "L",
             "pageIndex": page,
             "numOfRows": num_rows,

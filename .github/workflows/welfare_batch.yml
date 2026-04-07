@@ -42,14 +42,14 @@ jobs:
         if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == '1' }}
         env:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
         run: python batch/welfare_ai_processor.py --phase 1
 
-      - name: Phase 2 - Claude AI 분류
+      - name: Phase 2 - Gemini AI 분류
         if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == '2' }}
         env:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
         run: python batch/welfare_ai_processor.py --phase 2

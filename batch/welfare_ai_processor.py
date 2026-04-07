@@ -208,6 +208,74 @@ def run_phase0(supabase) -> int:
 
 
 # ════════════════════════════════════════════════════════════════════════════════
+# PHASE 0 DETAIL: 지자체복지서비스 상세 수집 → DB 저장
+# ════════════════════════════════════════════════════════════════════════════════
+
+def run_phase0_detail(supabase) -> int:
+    print("\n━━━ PHASE 0 DETAIL: 지자체복지서비스 상세 수집 ━━━")
+
+    result = (
+        supabase.table("welfare_services")
+        .select("id, name, online_url")
+        .eq("source", "local")
+        .is_("detail_fetched_at", "null")
+        .execute()
+    )
+    services = result.data or []
+    if not services:
+        print("  처리할 서비스 없음 (이미 완료)")
+        return 0
+
+    print(f"  처리 대상: {len(services)}개")
+    ok = fail = 0
+
+    for i, svc in enumerate(services):
+        serv_id = svc.get("online_url")  # WLF ID가 online_url에 저장됨
+        name_short = (svc.get("name") or "")[:20]
+
+        if not serv_id:
+            fail += 1
+            continue
+
+        print(f"  [{i+1}/{len(services)}] {name_short}... ", end="", flush=True)
+
+        try:
+            resp = requests.get(LOCAL_WELFARE_DETAIL_URL, params={
+                "serviceKey": LOCAL_WELFARE_API_KEY,
+                "servId": serv_id,
+            }, timeout=15)
+            resp.raise_for_status()
+            root = ET.fromstring(resp.text)
+
+            def txt(tag):
+                el = root.find(f".//{tag}")
+                return (el.text or "").strip() if el is not None else ""
+
+            detail_parts = []
+            for tag in ["servDgst", "tgtrDscr", "givBnfScpCn", "aplyMtd", "servDtlLink"]:
+                val = txt(tag)
+                if val:
+                    detail_parts.append(val)
+
+            supabase.table("welfare_services").update({
+                "detail_content": "\n".join(detail_parts),
+                "inq_place": txt("inqplCn"),
+                "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", svc["id"]).execute()
+            print("✓")
+            ok += 1
+
+        except Exception as e:
+            print(f"❌ {e}")
+            fail += 1
+
+        time.sleep(API_REQUEST_DELAY)
+
+    print(f"\n  Phase 0 Detail 완료: 성공={ok}, 오류={fail}")
+    return ok
+
+
+# ════════════════════════════════════════════════════════════════════════════════
 # PHASE 1: 복지로 API 상세 조회 → DB 저장
 # ════════════════════════════════════════════════════════════════════════════════
 
@@ -480,6 +548,7 @@ def main(phase: int | None = None):
 
     if phase is None or phase == 0:
         run_phase0(supabase)
+        run_phase0_detail(supabase)
     if phase is None or phase == 1:
         run_phase1(supabase)
     if phase is None or phase == 2:

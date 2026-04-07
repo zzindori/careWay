@@ -131,8 +131,10 @@ def fetch_local_welfare_list(page: int, num_rows: int = 100) -> list:
             })
 
         # 총 건수 파악
-        total_el = root.find(".//totalCount") or root.find(".//totCnt")
-        total = int(total_el.text) if total_el is not None and total_el.text else 0
+        total_el = root.find(".//totalCount")
+        if total_el is None:
+            total_el = root.find(".//totCnt")
+        total = int(total_el.text) if total_el is not None and total_el.text else len(items)
         return items, total
 
     except Exception as e:
@@ -197,7 +199,7 @@ def run_phase0(supabase) -> int:
         print(f"  → 신규 {len(new_items)}개 등록, 중복 {skip_items}개 스킵")
         time.sleep(API_REQUEST_DELAY)
 
-        if page * num_rows >= total_count:
+        if len(items) < num_rows:   # 마지막 페이지
             break
         page += 1
 

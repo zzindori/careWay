@@ -303,7 +303,7 @@ def fetch_welfare_detail(welfare_id: str) -> dict | None:
             resp = requests.get(WELFARE_DETAIL_URL, params=params, timeout=10)
             if resp.status_code == 429:
                 print(f"\n      ⚠ 429 → 일일 한도 초과, 스킵")
-                return None
+                return "QUOTA_EXCEEDED" 
             resp.raise_for_status()
 
             root = ET.fromstring(resp.text)
@@ -349,7 +349,7 @@ def run_phase1(supabase) -> int:
     result = (
         supabase.table("welfare_services")
         .select("id, name, online_url")
-        .eq("source", "national")  
+        .eq("source", "national")
         .is_("detail_fetched_at", "null")
         .execute()
     )
@@ -375,7 +375,11 @@ def run_phase1(supabase) -> int:
         print(f"  [{i+1}/{len(services)}] {name_short}... ", end="", flush=True)
         detail = fetch_welfare_detail(welfare_id)
 
-        if detail is None:
+        if detail == "QUOTA_EXCEEDED":
+            # 일일 한도 초과 → 루프 즉시 종료
+            print(f"\n  일일 한도 초과 → 중단 (성공={ok}, 스킵={skip}, 오류={fail})")
+            break
+        elif detail is None:
             print("❌ API 오류")
             fail += 1
         else:
@@ -392,7 +396,6 @@ def run_phase1(supabase) -> int:
 
     print(f"\n  Phase 1 완료: 성공={ok}, 스킵={skip}, 오류={fail}")
     return ok + skip
-
 
 # ════════════════════════════════════════════════════════════════════════════════
 # PHASE 2: Gemini AI 분류 → DB 저장

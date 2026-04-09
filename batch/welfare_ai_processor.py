@@ -302,10 +302,8 @@ def fetch_welfare_detail(welfare_id: str) -> dict | None:
         try:
             resp = requests.get(WELFARE_DETAIL_URL, params=params, timeout=10)
             if resp.status_code == 429:
-                wait = 60 * (attempt + 1)
-                print(f"\n      ⚠ 429 → {wait}초 대기 후 재시도...", flush=True)
-                time.sleep(wait)
-                continue
+                print(f"\n      ⚠ 429 → 일일 한도 초과, 스킵")
+                return None
             resp.raise_for_status()
 
             root = ET.fromstring(resp.text)

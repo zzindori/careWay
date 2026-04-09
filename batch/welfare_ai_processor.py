@@ -172,7 +172,7 @@ def run_phase0(supabase) -> int:
             if not it["name"]:
                 continue
             try:
-                supabase.table("welfare_services").insert({
+                supabase.table("welfare_services").upsert({
                     "name": it["name"],
                     "category": it["category"],
                     "description": it["description"] or it["name"],
@@ -189,7 +189,7 @@ def run_phase0(supabase) -> int:
                     "requires_basic_recipient": False,
                     "target_age_group": "unknown",
                     "source": "local",
-                }).execute()
+                }, on_conflict="online_url").execute()
                 existing_ids.add(it["serv_id"])
                 total_new += 1
             except Exception as e:

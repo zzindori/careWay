@@ -219,6 +219,7 @@ def run_phase0_detail(supabase) -> int:
         .select("id, name, online_url")
         .eq("source", "local")
         .is_("detail_fetched_at", "null")
+        .limit(100)
         .execute()
     )
     services = result.data or []
@@ -538,7 +539,7 @@ def run_phase2(supabase) -> int:
 # 메인
 # ════════════════════════════════════════════════════════════════════════════════
 
-def main(phase: int | None = None):
+def main(phase=None):
     validate_env()
     supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
@@ -546,20 +547,26 @@ def main(phase: int | None = None):
     print("  CareWay 복지서비스 배치 파이프라인")
     print("=" * 60)
 
-    if phase is None or phase == 0:
-        run_phase0(supabase)
-        run_phase0_detail(supabase)
-    if phase is None or phase == 1:
+    if phase == "0":
+        run_phase0(supabase)          # 목록 수집만
+    elif phase == "0_detail":
+        run_phase0_detail(supabase)   # 상세 수집만 (100건)
+    elif phase == "1":
         run_phase1(supabase)
-    if phase is None or phase == 2:
+    elif phase == "2":
+        run_phase2(supabase)
+    else:
+        # both → 전체 실행
+        run_phase0_detail(supabase)
+        run_phase1(supabase)
         run_phase2(supabase)
 
-    print("\n🎉 배치 완료! 앱을 재시작하면 업데이트된 데이터가 반영됩니다.")
+    print("\n🎉 배치 완료!")
 
 
 if __name__ == "__main__":
     args = sys.argv[1:]
     if len(args) == 2 and args[0] == "--phase":
-        main(phase=int(args[1]))
+        main(phase=args[1])
     else:
         main()

@@ -1,16 +1,13 @@
 name: CareWay 복지서비스 배치
 
 on:
-  # 매월 1일 오전 2시 (KST = UTC+9 → UTC 17:00 전날)
   schedule:
-    - cron: '0 17 28 * *'   # 매월 28일 02:00 KST
-    - cron: '0 19 8 4 *'    # 2026-04-09 04:00 KST (일회성)
+    - cron: '0 17 * * *'  # 매일 새벽 2시 KST
 
-  # 수동 실행 (phase 선택 가능)
   workflow_dispatch:
     inputs:
       phase:
-        description: '실행할 Phase (1=API수집, 2=AI분류, both=전체)'
+        description: '실행할 Phase (0=목록수집, 1=API상세, 2=AI분류, both=전체)'
         required: false
         default: 'both'
         type: choice
@@ -24,7 +21,7 @@ jobs:
   batch:
     name: 복지서비스 데이터 수집 & AI 분류
     runs-on: ubuntu-latest
-    timeout-minutes: 150  # Phase0 Detail(90분) + Phase1(8분) + Phase2 일부
+    timeout-minutes: 150
 
     steps:
       - name: 코드 체크아웃
@@ -40,8 +37,9 @@ jobs:
       - name: 패키지 설치
         run: pip install -r batch/requirements.txt
 
+      # Phase 0 목록 수집 → 수동 실행할 때만
       - name: Phase 0 - 지자체복지서비스 목록 수집
-        if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == '0' }}
+        if: ${{ inputs.phase == '0' }}
         env:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -49,18 +47,33 @@ jobs:
           LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
         run: python batch/welfare_ai_processor.py --phase 0
 
+      # Phase 0 Detail 상세 수집 → 매일 자동 (100건 제한)
+      - name: Phase 0 Detail - 지자체복지서비스 상세 수집
+        if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == '1' }}
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
+          LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
+        run: python batch/welfare_ai_processor.py --phase 0_detail
+
+      # Phase 1 복지로 API 상세 수집 → 매일 자동
       - name: Phase 1 - 복지로 API 상세 수집
         if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == '1' }}
         env:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
+          LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
         run: python batch/welfare_ai_processor.py --phase 1
 
+      # Phase 2 AI 분류 → 매일 자동
       - name: Phase 2 - Gemini AI 분류
         if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == '2' }}
         env:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
+          LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
         run: python batch/welfare_ai_processor.py --phase 2
+        

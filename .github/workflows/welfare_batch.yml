@@ -7,13 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       phase:
-        description: '실행할 Phase (0=목록수집, 1=API상세, 2=AI분류, both=전체)'
+        description: '실행할 Phase (0=목록수집, 0_detail=상세수집, 1=복지로API, 2=AI분류, both=전체)'
         required: false
         default: 'both'
         type: choice
         options:
           - both
           - '0'
+          - '0_detail'
           - '1'
           - '2'
 
@@ -37,7 +38,7 @@ jobs:
       - name: 패키지 설치
         run: pip install -r batch/requirements.txt
 
-      # Phase 0 목록 수집 → 수동 실행할 때만
+      # Phase 0 목록 수집 → 수동 '0' 선택할 때만
       - name: Phase 0 - 지자체복지서비스 목록 수집
         if: ${{ inputs.phase == '0' }}
         env:
@@ -47,9 +48,9 @@ jobs:
           LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
         run: python batch/welfare_ai_processor.py --phase 0
 
-      # Phase 0 Detail 상세 수집 → 매일 자동 (100건 제한)
+      # Phase 0 Detail → 매일 자동 + 수동 '0_detail' 선택
       - name: Phase 0 Detail - 지자체복지서비스 상세 수집
-        if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == '1' }}
+        if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == '0_detail' }}
         env:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -57,7 +58,7 @@ jobs:
           LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
         run: python batch/welfare_ai_processor.py --phase 0_detail
 
-      # Phase 1 복지로 API 상세 수집 → 매일 자동
+      # Phase 1 복지로 API → 매일 자동 + 수동 '1' 선택
       - name: Phase 1 - 복지로 API 상세 수집
         if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == '1' }}
         env:
@@ -67,7 +68,7 @@ jobs:
           LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
         run: python batch/welfare_ai_processor.py --phase 1
 
-      # Phase 2 AI 분류 → 매일 자동
+      # Phase 2 AI 분류 → 매일 자동 + 수동 '2' 선택
       - name: Phase 2 - Gemini AI 분류
         if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == '2' }}
         env:
@@ -76,4 +77,3 @@ jobs:
           WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
           LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
         run: python batch/welfare_ai_processor.py --phase 2
-        

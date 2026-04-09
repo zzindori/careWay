@@ -78,8 +78,6 @@ def validate_env():
         missing.append("GEMINI_API_KEY")
     if not WELFARE_API_KEY:
         missing.append("WELFARE_API_KEY")
-    if not LOCAL_WELFARE_API_KEY:
-        missing.append("LOCAL_WELFARE_API_KEY")
     if missing:
         print(f"❌ 환경변수 미설정: {', '.join(missing)}")
         sys.exit(1)

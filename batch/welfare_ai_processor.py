@@ -351,6 +351,7 @@ def run_phase1(supabase) -> int:
     result = (
         supabase.table("welfare_services")
         .select("id, name, online_url")
+        .eq("source", "national")  
         .is_("detail_fetched_at", "null")
         .execute()
     )

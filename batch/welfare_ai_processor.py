@@ -512,7 +512,8 @@ def run_phase2(supabase) -> int:
     result = (
         supabase.table("welfare_services")
         .select("id, name, target_info, benefit_info, detail_content, region")
-        .or_("filter_updated_at.is.null,target_age_group.eq.unknown")
+        .is_("filter_updated_at", "null")
+        .limit(1000)
         .execute()
     )
     services = result.data

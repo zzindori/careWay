@@ -177,7 +177,7 @@ def run_phase0(supabase) -> int:
                     "target_info": it["target_info"],
                     "benefit_info": it["benefit_info"],
                     "apply_place": it["apply_place"],
-                    "online_url": it["serv_id"],   # WLF ID → 중복방지 및 상세조회용
+                    "online_url": it["serv_id"],
                     "difficulty": 2,
                     "is_renewable": False,
                     "min_age": 0,
@@ -212,38 +212,44 @@ def run_phase0(supabase) -> int:
 def run_phase0_detail(supabase) -> int:
     print("\n━━━ PHASE 0 DETAIL: 지자체복지서비스 상세 수집 ━━━")
 
+    # 미처리 항목 최대 1000개 조회 (다음 실행 때 나머지 이어서 처리)
     result = (
         supabase.table("welfare_services")
         .select("id, name, online_url")
         .eq("source", "local")
         .is_("detail_fetched_at", "null")
-        .limit(100)
+        .limit(1000)
         .execute()
     )
-    services = result.data or []
-    if not services:
+    all_services = result.data or []
+
+    if not all_services:
         print("  처리할 서비스 없음 (이미 완료)")
         return 0
 
-    print(f"  처리 대상: {len(services)}개")
+    print(f"  처리 대상: {len(all_services)}개")
     ok = fail = 0
 
-    for i, svc in enumerate(services):
-        serv_id = svc.get("online_url")  # WLF ID가 online_url에 저장됨
+    for i, svc in enumerate(all_services):
+        serv_id = svc.get("online_url")
         name_short = (svc.get("name") or "")[:20]
 
         if not serv_id:
             fail += 1
             continue
 
-        print(f"  [{i+1}/{len(services)}] {name_short}... ", end="", flush=True)
+        print(f"  [{i+1}/{len(all_services)}] {name_short}... ", end="", flush=True)
 
         try:
             resp = requests.get(LOCAL_WELFARE_DETAIL_URL, params={
                 "serviceKey": LOCAL_WELFARE_API_KEY,
                 "servId": serv_id,
             }, timeout=15)
+            if resp.status_code == 429:
+                print(f"\n  ⚠ 일일 100건 한도 도달 → 오늘 종료 (내일 이어서 수집)")
+                break
             resp.raise_for_status()
+
             root = ET.fromstring(resp.text)
 
             def txt(tag):
@@ -482,7 +488,7 @@ def run_phase2(supabase) -> int:
     result = (
         supabase.table("welfare_services")
         .select("id, name, target_info, benefit_info, detail_content")
-        .is_("filter_updated_at", "null")
+        .or_("filter_updated_at.is.null,target_age_group.eq.unknown")
         .execute()
     )
     services = result.data

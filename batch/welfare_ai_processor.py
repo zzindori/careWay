@@ -118,13 +118,14 @@ def fetch_local_welfare_list(page: int, num_rows: int = 100) -> list:
 
             serv_id = g("wlfareInfoId") or g("servId")
             items.append({
-                "serv_id": serv_id,           # 중복 체크용, insert 때 online_url에 저장
+                "serv_id": serv_id,
                 "name": g("wlfareSvcNm") or g("servNm"),
                 "category": CATEGORY_MAP.get(g("lifeArray") or g("category"), "living"),
                 "description": g("servDgst") or g("summary"),
                 "target_info": g("tgtrDscr") or g("target"),
                 "benefit_info": g("givBnfScpCn") or g("benefit"),
                 "apply_place": g("aplyMtd") or g("applyMethod"),
+                "region": g("ctpvNm") or "",
                 "source": "local",
             })
 
@@ -186,6 +187,7 @@ def run_phase0(supabase) -> int:
                     "requires_alone": False,
                     "requires_basic_recipient": False,
                     "target_age_group": "unknown",
+                    "region": it.get("region", ""),
                     "source": "local",
                 }, on_conflict="online_url").execute()
                 existing_ids.add(it["serv_id"])
@@ -422,22 +424,41 @@ EXTRACTION_RULES = """
 - requires_alone: 독거노인 전용 여부
 - requires_basic_recipient: 기초생활수급자 전용 여부
 - requires_disability: 장애인 전용 여부
+- requires_veteran: 보훈대상자 필수 여부 (참전유공자·국가유공자·독립유공자)
+- service_tags: 서비스 성격 태그 배열 (해당하는 것 모두 포함)
+    "dementia"   → 치매 관련 서비스
+    "mobility"   → 이동지원·병원동행·교통지원
+    "daily_care" → 식사·세면·집안일·일상생활 지원
+    "hearing"    → 청각 지원·보청기
+    "vision"     → 시각 지원·안경·개안수술
+    "medical"    → 의료비·건강검진·투약 지원
+    예: ["daily_care", "mobility"] / 해당 없으면 []
 - target_age_group:
-    "elderly"  → 노인·어르신·60세 이상·65세 이상
-    "youth"    → 청소년 (13~19세)
-    "child"    → 아동·영유아 (0~12세)
-    "adult"    → 일반 성인 (특정 고령 조건 없음)
-    "all"      → 전 연령 대상
-    "unknown"  → 판단 불가
+    "elderly"   → 노인·어르신·65세이상·60세이상·장기요양
+    "youth"     → 청소년·청년·대학생·13~39세
+    "child"     → 아동·영유아·초중고·0~12세
+    "infant"    → 신생아·임산부·산모·태아·출산
+    "adult"     → 일반성인·특정연령조건없음
+    "veteran"   → 참전유공자·국가보훈·독립유공자·보훈
+    "disabled"  → 장애인 전용
+    "all"       → 전연령·소득기준만있음
+    "unknown"   → 판단불가
+- region: 시도명
+    API에서 지역 정보가 제공된 경우 그대로 사용
+    전국 단위 서비스이면 "전국"
+    서비스명/내용에서 특정 시도가 확인되면 해당 시도명 (예: "서울", "경기", "부산")
+    판단 불가이면 "전국"
 - confidence: 추출 확신도 0.0~1.0
 """
 
 
 def make_prompt(svc: dict) -> str:
     detail = (svc.get("detail_content") or "")[:600]
+    region_hint = svc.get("region") or ""
     return f"""당신은 한국 복지 서비스 자격 조건 분석 전문가입니다. 반드시 JSON만 응답하세요.
 
 서비스명: {svc.get('name', '')}
+지역: {region_hint if region_hint else '(미확인 - 내용에서 추출)'}
 지원대상: {(svc.get('target_info') or '')[:500]}
 지원내용: {(svc.get('benefit_info') or '')[:300]}
 상세내용: {detail}
@@ -455,7 +476,10 @@ def make_prompt(svc: dict) -> str:
   "requires_alone": false,
   "requires_basic_recipient": false,
   "requires_disability": false,
+  "requires_veteran": false,
   "target_age_group": "unknown",
+  "service_tags": [],
+  "region": "{region_hint if region_hint else '전국'}",
   "confidence": 0.8
 }}
 
@@ -487,7 +511,7 @@ def run_phase2(supabase) -> int:
 
     result = (
         supabase.table("welfare_services")
-        .select("id, name, target_info, benefit_info, detail_content")
+        .select("id, name, target_info, benefit_info, detail_content, region")
         .or_("filter_updated_at.is.null,target_age_group.eq.unknown")
         .execute()
     )
@@ -523,7 +547,11 @@ def run_phase2(supabase) -> int:
                     "requires_ltc_grade": criteria.get("requires_ltc_grade", False),
                     "requires_alone": criteria.get("requires_alone", False),
                     "requires_basic_recipient": criteria.get("requires_basic_recipient", False),
+                    "requires_disability": criteria.get("requires_disability", False),
+                    "requires_veteran": criteria.get("requires_veteran", False),
+                    "service_tags": criteria.get("service_tags", []),
                     "target_age_group": criteria.get("target_age_group", "unknown"),
+                    "region": criteria.get("region") or svc.get("region") or "전국",
                     "ai_criteria": criteria,
                     "filter_confidence": criteria.get("confidence", 0.0),
                     "filter_updated_at": datetime.now(timezone.utc).isoformat(),

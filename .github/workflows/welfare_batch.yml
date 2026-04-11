@@ -86,4 +86,7 @@ jobs:
         if: ${{ inputs.phase == 'fix_region' }}
         env:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
+          LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
         run: python batch/welfare_ai_processor.py --phase fix_region

@@ -290,9 +290,16 @@ def fetch_local_welfare_web(session: requests.Session, serv_id: str) -> dict | N
 
     phones = [d["wlfareInfoReldCn"] for d in dtl if d.get("wlfareInfoDtlCd") == "010" and d.get("wlfareInfoReldCn")]
 
+    target = strip_html(dm.get("wlfareSprtTrgtCn") or "")
+    benefit = strip_html(dm.get("wlfareSprtBnftCn") or "")
+
+    # TODO: 필드명 확인 후 제거 - dm 키 목록 출력 (target/benefit 모두 비어있을 때만)
+    if not target and not benefit and dm:
+        print(f"\n    [DEBUG] dm keys: {list(dm.keys())[:10]}", flush=True)
+
     return {
-        "target_info": strip_html(dm.get("wlfareSprtTrgtCn") or ""),
-        "benefit_info": strip_html(dm.get("wlfareSprtBnftCn") or ""),
+        "target_info": target,
+        "benefit_info": benefit,
         "apply_place": strip_html(dm.get("aplyMtdDc") or ""),
         "detail_content": strip_html(dm.get("wlfareInfoOutlCn") or ""),
         "inq_place": ", ".join(phones),
@@ -322,6 +329,13 @@ def run_phase0_detail(supabase) -> int:
 
     session = requests.Session()
     session.headers.update(WEB_HEADERS)
+
+    # 세션 워밍업 - 첫 요청 ConnectionReset 방지
+    try:
+        session.get("https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52005M.do", timeout=10)
+        time.sleep(1.0)
+    except Exception:
+        pass
 
     for i, svc in enumerate(all_services):
         serv_id = svc.get("online_url")

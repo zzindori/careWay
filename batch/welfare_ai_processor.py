@@ -286,7 +286,9 @@ def parse_welfare_html(html: str) -> dict | None:
 
 
 def fetch_local_welfare_playwright(page, serv_id: str) -> dict | None:
-    """Playwright로 복지로 상세 페이지 로드 후 HTTP 응답 HTML 직접 파싱"""
+    """Playwright로 복지로 상세 페이지 로드 후 HTTP 응답 HTML 직접 파싱.
+    page는 매 요청마다 새로 생성된 페이지여야 함 (SPA 라우터 우회).
+    """
     html_captured = [None]
 
     def on_response(response):
@@ -295,12 +297,6 @@ def fetch_local_welfare_playwright(page, serv_id: str) -> dict | None:
                 html_captured[0] = response.body().decode('utf-8', errors='replace')
             except Exception:
                 pass
-
-    # SPA 라우터 우회: about:blank로 초기화 후 완전한 새 페이지 로드
-    try:
-        page.goto("about:blank", wait_until="domcontentloaded", timeout=5000)
-    except Exception:
-        pass
 
     page.on("response", on_response)
     try:
@@ -360,17 +356,19 @@ def run_phase0_detail(supabase) -> int:
             viewport={"width": 1280, "height": 800},
         )
         context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        page = context.new_page()
 
         # 워밍업 - 홈페이지 먼저 방문해서 세션/쿠키 확립
+        warmup_page = context.new_page()
         try:
-            page.goto("https://www.bokjiro.go.kr/ssis-tbu/index.do",
-                      wait_until="domcontentloaded", timeout=15000)
+            warmup_page.goto("https://www.bokjiro.go.kr/ssis-tbu/index.do",
+                             wait_until="domcontentloaded", timeout=15000)
             time.sleep(1.0)
-            page.goto("https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52005M.do",
-                      wait_until="domcontentloaded", timeout=20000)
+            warmup_page.goto("https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52005M.do",
+                             wait_until="domcontentloaded", timeout=20000)
         except Exception:
             pass
+        finally:
+            warmup_page.close()
 
         for i, svc in enumerate(all_services):
             serv_id = svc.get("online_url")
@@ -382,6 +380,9 @@ def run_phase0_detail(supabase) -> int:
 
             print(f"  [{i+1}/{len(all_services)}] {name_short}... ", end="", flush=True)
 
+            # 매 요청마다 새 페이지 생성 → SPA 라우터 우회 (실제 HTTP GET 강제)
+            page = context.new_page()
+            should_break = False
             try:
                 data = fetch_local_welfare_playwright(page, serv_id)
                 if not data:
@@ -390,25 +391,25 @@ def run_phase0_detail(supabase) -> int:
                     consecutive_fail += 1
                     if consecutive_fail >= MAX_CONSECUTIVE_FAIL:
                         print(f"\n  연속 {MAX_CONSECUTIVE_FAIL}회 실패 → 조기 종료")
-                        break
-                    time.sleep(WEB_SCRAPE_DELAY * 3)  # 실패 시 더 기다림
-                    continue
-
-                update = {
-                    "target_info": data["target_info"],
-                    "benefit_info": data["benefit_info"],
-                    "apply_place": data["apply_place"],
-                    "detail_content": data["detail_content"] or svc.get("description", ""),
-                    "inq_place": data["inq_place"],
-                    "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
-                }
-                supabase.table("welfare_services").update(update).eq("id", svc["id"]).execute()
-                t = len(update["target_info"])
-                b = len(update["benefit_info"])
-                d = len(update["detail_content"])
-                print(f"✓ (대상:{t}자 혜택:{b}자 내용:{d}자)")
-                ok += 1
-                consecutive_fail = 0
+                        should_break = True
+                    else:
+                        time.sleep(WEB_SCRAPE_DELAY * 3)
+                else:
+                    update = {
+                        "target_info": data["target_info"],
+                        "benefit_info": data["benefit_info"],
+                        "apply_place": data["apply_place"],
+                        "detail_content": data["detail_content"] or svc.get("description", ""),
+                        "inq_place": data["inq_place"],
+                        "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                    supabase.table("welfare_services").update(update).eq("id", svc["id"]).execute()
+                    t = len(update["target_info"])
+                    b = len(update["benefit_info"])
+                    d = len(update["detail_content"])
+                    print(f"✓ (대상:{t}자 혜택:{b}자 내용:{d}자)")
+                    ok += 1
+                    consecutive_fail = 0
 
             except Exception as e:
                 print(f"❌ {e}")
@@ -416,7 +417,13 @@ def run_phase0_detail(supabase) -> int:
                 consecutive_fail += 1
                 if consecutive_fail >= MAX_CONSECUTIVE_FAIL:
                     print(f"\n  연속 {MAX_CONSECUTIVE_FAIL}회 실패 → 조기 종료")
-                    break
+                    should_break = True
+
+            finally:
+                page.close()
+
+            if should_break:
+                break
 
             time.sleep(WEB_SCRAPE_DELAY)
 

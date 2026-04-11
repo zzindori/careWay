@@ -290,13 +290,16 @@ def fetch_local_welfare_playwright(page, serv_id: str) -> dict | None:
     page는 매 요청마다 새로 생성된 페이지여야 함 (SPA 라우터 우회).
     """
     html_captured = [None]
+    captured_status = [None]
 
     def on_response(response):
-        if serv_id in response.url and response.status == 200:
-            try:
-                html_captured[0] = response.body().decode('utf-8', errors='replace')
-            except Exception:
-                pass
+        if serv_id in response.url:
+            captured_status[0] = response.status
+            if response.status == 200:
+                try:
+                    html_captured[0] = response.body().decode('utf-8', errors='replace')
+                except Exception:
+                    pass
 
     page.on("response", on_response)
     try:
@@ -312,9 +315,17 @@ def fetch_local_welfare_playwright(page, serv_id: str) -> dict | None:
 
     html = html_captured[0] or ""
     if not html:
+        print(f"\n    [DEBUG] HTML 미캡처 (status={captured_status[0]})", flush=True)
         return None
 
-    return parse_welfare_html(html)
+    if 'initParameter' not in html:
+        print(f"\n    [DEBUG] HTML {len(html)}자 캡처됨, initParameter 없음 (서버가 데이터 미포함)", flush=True)
+        return None
+
+    result = parse_welfare_html(html)
+    if not result:
+        print(f"\n    [DEBUG] HTML {len(html)}자, initParameter 있음, 파싱 실패", flush=True)
+    return result
 
 
 def run_phase0_detail(supabase) -> int:
@@ -380,7 +391,20 @@ def run_phase0_detail(supabase) -> int:
 
             print(f"  [{i+1}/{len(all_services)}] {name_short}... ", end="", flush=True)
 
-            # 매 요청마다 새 페이지 생성 → SPA 라우터 우회 (실제 HTTP GET 강제)
+            # 매 요청 전 목록 페이지 방문 → 서버 세션 상태 리셋 (상세 데이터 미포함 방지)
+            pre_page = context.new_page()
+            try:
+                pre_page.goto(
+                    "https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52005M.do",
+                    wait_until="domcontentloaded", timeout=15000,
+                )
+                time.sleep(1.0)
+            except Exception:
+                pass
+            finally:
+                pre_page.close()
+
+            # 상세 페이지 요청 (새 페이지로 실제 HTTP GET)
             page = context.new_page()
             should_break = False
             try:

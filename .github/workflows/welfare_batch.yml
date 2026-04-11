@@ -38,6 +38,9 @@ jobs:
       - name: 패키지 설치
         run: pip install -r batch/requirements.txt
 
+      - name: Playwright 브라우저 설치
+        run: playwright install --with-deps chromium
+
       # Phase 0 목록 수집 → 수동 '0' 선택할 때만
       - name: Phase 0 - 지자체복지서비스 목록 수집
         if: ${{ inputs.phase == '0' }}

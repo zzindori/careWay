@@ -44,7 +44,6 @@ import json
 import time
 import re
 import requests
-from curl_cffi import requests as cf_requests  # Chrome TLS 핑거프린트로 위장
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
@@ -64,7 +63,7 @@ WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/NationalWelfareInformation
 # 지자체복지서비스 API (한국사회보장정보원, 동일 제공기관 B554287)
 LOCAL_WELFARE_LIST_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfarelist"
 LOCAL_WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfaredetailed"  # 사용 안 함 (웹 스크래핑으로 대체)
-BOKJIRO_WEB_URL = "https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52013M.do"
+BOKJIRO_WEB_URL = "https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52011M.do"
 
 MODEL = "gemini-2.0-flash"
 API_REQUEST_DELAY = 1.2    # 복지로 API rate limit 방지 (개발계정 100 RPM → 최소 0.6초, 여유분 포함)
@@ -257,71 +256,72 @@ def strip_html(text: str) -> str:
     text = re.sub(r'<[^>]+>', '', text)
     return text.strip()
 
-def fetch_local_welfare_web(session: requests.Session, serv_id: str) -> dict | None:
-    """복지로 웹에서 지자체복지서비스 상세 스크래핑 (HTML 내 JSON 파싱)"""
-    resp = session.get(
-        BOKJIRO_WEB_URL,
-        params={"wlfareInfoId": serv_id, "wlfareInfoReldBztpCd": "02"},
-        timeout=15,
-    )
-    resp.raise_for_status()
 
-    # initParameter({initValue: {dmWlfareInfo: "..."}}) 블록 탐색
-    # initValue를 가진 블록이 여러 개이므로, initValue 내부에 dmWlfareInfo가 있는 블록을 선택
-    decoder = json.JSONDecoder()
-    outer = None
-    for m in re.finditer(r'initParameter\s*\(\s*(\{)', resp.text):
-        start = m.start(1)
-        try:
-            obj, _ = decoder.raw_decode(resp.text, start)
-            iv = obj.get('initValue', {})
-            if isinstance(iv, dict) and 'dmWlfareInfo' in iv:
-                outer = obj
-                break
-        except json.JSONDecodeError:
-            continue
-
-    if not outer:
-        # DEBUG: 첫 실패 시 응답 상태 및 내용 일부 출력
-        if not getattr(fetch_local_welfare_web, '_fail_debug_done', False):
-            fetch_local_welfare_web._fail_debug_done = True
-            matches = re.findall(r'initParameter\s*\(', resp.text)
-            print(f"\n    [DEBUG] serv_id={serv_id}", flush=True)
-            print(f"    [DEBUG] status={resp.status_code}, url={resp.url}", flush=True)
-            print(f"    [DEBUG] initParameter 개수={len(matches)}", flush=True)
-            print(f"    [DEBUG] 응답 앞 300자: {resp.text[:300]!r}", flush=True)
+def fetch_local_welfare_playwright(page, serv_id: str) -> dict | None:
+    """Playwright로 복지로 상세 페이지에서 cprFramework 데이터 추출"""
+    try:
+        page.goto(
+            f"{BOKJIRO_WEB_URL}?wlfareInfoId={serv_id}&wlfareInfoReldBztpCd=02",
+            wait_until="networkidle",
+            timeout=30000,
+        )
+    except Exception:
         return None
 
-    init_val = outer.get("initValue", {})
-    dm_raw = init_val.get("dmWlfareInfo", "{}")
-    dtl_raw = init_val.get("dsWlfareInfoDtl", "[]")
-    dm = json.loads(dm_raw) if isinstance(dm_raw, str) else dm_raw
-    dtl = json.loads(dtl_raw) if isinstance(dtl_raw, str) else dtl_raw
+    data = page.evaluate("""
+        () => {
+            try {
+                const app = cpr.core.Platform.INSTANCE.getActiveApplication();
+                if (!app) return {error: 'no app'};
+                const dm = app.lookup('dmWlfareInfo');
+                const dtl = app.lookup('dsWlfareInfoDtl');
+                if (!dm) return {error: 'no dmWlfareInfo'};
+                const phones = [];
+                if (dtl) {
+                    for (let i = 0; i < dtl.getRowCount(); i++) {
+                        if (dtl.getValue(i, 'wlfareInfoDtlCd') === '010') {
+                            const p = dtl.getValue(i, 'wlfareInfoReldCn');
+                            if (p) phones.push(p);
+                        }
+                    }
+                }
+                return {
+                    target: dm.getValue('wlfareSprtTrgtCn') || '',
+                    benefit: dm.getValue('wlfareSprtBnftCn') || '',
+                    apply: dm.getValue('aplyMtdDc') || '',
+                    detail: dm.getValue('wlfareInfoOutlCn') || '',
+                    phones: phones,
+                };
+            } catch(e) {
+                return {error: e.toString()};
+            }
+        }
+    """)
 
-    phones = [d["wlfareInfoReldCn"] for d in dtl if d.get("wlfareInfoDtlCd") == "010" and d.get("wlfareInfoReldCn")]
-
-    target = strip_html(dm.get("wlfareSprtTrgtCn") or "")
-    benefit = strip_html(dm.get("wlfareSprtBnftCn") or "")
+    if not data or 'error' in data:
+        return None
 
     return {
-        "target_info": target,
-        "benefit_info": benefit,
-        "apply_place": strip_html(dm.get("aplyMtdDc") or ""),
-        "detail_content": strip_html(dm.get("wlfareInfoOutlCn") or ""),
-        "inq_place": ", ".join(phones),
+        "target_info": strip_html(data.get("target") or ""),
+        "benefit_info": strip_html(data.get("benefit") or ""),
+        "apply_place": strip_html(data.get("apply") or ""),
+        "detail_content": strip_html(data.get("detail") or ""),
+        "inq_place": ", ".join(data.get("phones") or []),
     }
 
 
 def run_phase0_detail(supabase) -> int:
+    from playwright.sync_api import sync_playwright
+
     print("\n━━━ PHASE 0 DETAIL: 지자체복지서비스 상세 수집 ━━━")
 
-    # 미처리 항목 전체 조회 (웹 스크래핑은 API 한도 없음)
+    limit = int(os.getenv("PHASE0_DETAIL_LIMIT", "200"))
     result = (
         supabase.table("welfare_services")
         .select("id, name, online_url, description")
         .eq("source", "local")
         .is_("detail_fetched_at", "null")
-        .limit(10000)
+        .limit(limit)
         .execute()
     )
     all_services = result.data or []
@@ -334,62 +334,65 @@ def run_phase0_detail(supabase) -> int:
     ok = fail = consecutive_fail = 0
     MAX_CONSECUTIVE_FAIL = 10
 
-    session = cf_requests.Session(impersonate="chrome124")
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+        page = browser.new_page()
 
-    # 세션 워밍업 - 첫 요청 ConnectionReset 방지
-    try:
-        session.get("https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52005M.do", timeout=10)
-        time.sleep(1.0)
-    except Exception:
-        pass
-
-    for i, svc in enumerate(all_services):
-        serv_id = svc.get("online_url")
-        name_short = (svc.get("name") or "")[:20]
-
-        if not serv_id:
-            fail += 1
-            continue
-
-        print(f"  [{i+1}/{len(all_services)}] {name_short}... ", end="", flush=True)
-
+        # 워밍업 - 세션/쿠키 확립
         try:
-            data = fetch_local_welfare_web(session, serv_id)
-            if not data:
-                print("⚠ 파싱 실패")
+            page.goto("https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52005M.do",
+                      wait_until="domcontentloaded", timeout=20000)
+        except Exception:
+            pass
+
+        for i, svc in enumerate(all_services):
+            serv_id = svc.get("online_url")
+            name_short = (svc.get("name") or "")[:20]
+
+            if not serv_id:
+                fail += 1
+                continue
+
+            print(f"  [{i+1}/{len(all_services)}] {name_short}... ", end="", flush=True)
+
+            try:
+                data = fetch_local_welfare_playwright(page, serv_id)
+                if not data:
+                    print("⚠ 파싱 실패")
+                    fail += 1
+                    consecutive_fail += 1
+                    if consecutive_fail >= MAX_CONSECUTIVE_FAIL:
+                        print(f"\n  연속 {MAX_CONSECUTIVE_FAIL}회 실패 → 조기 종료")
+                        break
+                    continue
+
+                update = {
+                    "target_info": data["target_info"],
+                    "benefit_info": data["benefit_info"],
+                    "apply_place": data["apply_place"],
+                    "detail_content": data["detail_content"] or svc.get("description", ""),
+                    "inq_place": data["inq_place"],
+                    "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
+                }
+                supabase.table("welfare_services").update(update).eq("id", svc["id"]).execute()
+                t = len(update["target_info"])
+                b = len(update["benefit_info"])
+                d = len(update["detail_content"])
+                print(f"✓ (대상:{t}자 혜택:{b}자 내용:{d}자)")
+                ok += 1
+                consecutive_fail = 0
+
+            except Exception as e:
+                print(f"❌ {e}")
                 fail += 1
                 consecutive_fail += 1
-                time.sleep(WEB_SCRAPE_DELAY)
                 if consecutive_fail >= MAX_CONSECUTIVE_FAIL:
                     print(f"\n  연속 {MAX_CONSECUTIVE_FAIL}회 실패 → 조기 종료")
                     break
-                continue
 
-            update = {
-                "target_info": data["target_info"],
-                "benefit_info": data["benefit_info"],
-                "apply_place": data["apply_place"],
-                "detail_content": data["detail_content"] or svc.get("description", ""),
-                "inq_place": data["inq_place"],
-                "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
-            }
-            supabase.table("welfare_services").update(update).eq("id", svc["id"]).execute()
-            t = len(update["target_info"])
-            b = len(update["benefit_info"])
-            d = len(update["detail_content"])
-            print(f"✓ (대상:{t}자 혜택:{b}자 내용:{d}자)")
-            ok += 1
-            consecutive_fail = 0
+            time.sleep(WEB_SCRAPE_DELAY)
 
-        except Exception as e:
-            print(f"❌ {e}")
-            fail += 1
-            consecutive_fail += 1
-            if consecutive_fail >= MAX_CONSECUTIVE_FAIL:
-                print(f"\n  연속 {MAX_CONSECUTIVE_FAIL}회 실패 → 조기 종료")
-                break
-
-        time.sleep(WEB_SCRAPE_DELAY)
+        browser.close()
 
     print(f"\n  Phase 0 Detail 완료: 성공={ok}, 오류={fail}")
     return ok

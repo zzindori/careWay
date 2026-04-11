@@ -350,7 +350,10 @@ def run_phase0_detail(supabase) -> int:
                 "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
             }
             supabase.table("welfare_services").update(update).eq("id", svc["id"]).execute()
-            print("✓")
+            t = len(update["target_info"])
+            b = len(update["benefit_info"])
+            d = len(update["detail_content"])
+            print(f"✓ (대상:{t}자 혜택:{b}자 내용:{d}자)")
             ok += 1
 
         except Exception as e:

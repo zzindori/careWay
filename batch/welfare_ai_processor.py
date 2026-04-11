@@ -257,73 +257,66 @@ def strip_html(text: str) -> str:
     return text.strip()
 
 
+def parse_welfare_html(html: str) -> dict | None:
+    """HTML에서 initParameter의 dmWlfareInfo 파싱"""
+    decoder = json.JSONDecoder()
+    for m in re.finditer(r'initParameter\s*\(\s*(\{)', html):
+        start = m.start(1)
+        try:
+            obj, _ = decoder.raw_decode(html, start)
+            iv = obj.get('initValue', {})
+            if not isinstance(iv, dict) or 'dmWlfareInfo' not in iv:
+                continue
+            dm_raw = iv.get("dmWlfareInfo", "{}")
+            dtl_raw = iv.get("dsWlfareInfoDtl", "[]")
+            dm = json.loads(dm_raw) if isinstance(dm_raw, str) else dm_raw
+            dtl = json.loads(dtl_raw) if isinstance(dtl_raw, str) else dtl_raw
+            phones = [d["wlfareInfoReldCn"] for d in dtl
+                      if d.get("wlfareInfoDtlCd") == "010" and d.get("wlfareInfoReldCn")]
+            return {
+                "target_info": strip_html(dm.get("wlfareSprtTrgtCn") or ""),
+                "benefit_info": strip_html(dm.get("wlfareSprtBnftCn") or ""),
+                "apply_place": strip_html(dm.get("aplyMtdDc") or ""),
+                "detail_content": strip_html(dm.get("wlfareInfoOutlCn") or ""),
+                "inq_place": ", ".join(phones),
+            }
+        except (json.JSONDecodeError, Exception):
+            continue
+    return None
+
+
 def fetch_local_welfare_playwright(page, serv_id: str) -> dict | None:
-    """Playwright로 복지로 상세 페이지에서 cprFramework 데이터 추출"""
+    """Playwright로 복지로 상세 페이지 로드 후 HTTP 응답 HTML 직접 파싱"""
+    html_captured = [None]
+
+    def on_response(response):
+        if serv_id in response.url and response.status == 200:
+            try:
+                html_captured[0] = response.body().decode('utf-8', errors='replace')
+            except Exception:
+                pass
+
+    page.on("response", on_response)
     try:
         page.goto(
             f"{BOKJIRO_WEB_URL}?wlfareInfoId={serv_id}&wlfareInfoReldBztpCd=02",
-            wait_until="load",
-            timeout=30000,
-        )
-        # AJAX로 복지 데이터 로드될 때까지 대기 (networkidle 대신 - GA 요청으로 타임아웃)
-        page.wait_for_function(
-            """() => {
-                try {
-                    const app = cpr.core.Platform.INSTANCE.getActiveApplication();
-                    return app && !!app.lookup('dmWlfareInfo');
-                } catch(e) { return false; }
-            }""",
-            timeout=15000,
+            wait_until="domcontentloaded",
+            timeout=20000,
         )
     except Exception as e:
-        print(f"\n    [DEBUG] goto 실패: {e}", flush=True)
+        print(f"\n    [DEBUG] goto 실패: {str(e)[:120]}", flush=True)
+    finally:
+        page.remove_listener("response", on_response)
+
+    html = html_captured[0] or ""
+    if not html:
         try:
-            page.goto("about:blank", wait_until="load", timeout=5000)
+            page.goto("about:blank", wait_until="domcontentloaded", timeout=5000)
         except Exception:
             pass
         return None
 
-    data = page.evaluate("""
-        () => {
-            try {
-                const app = cpr.core.Platform.INSTANCE.getActiveApplication();
-                if (!app) return {error: 'no app'};
-                const dm = app.lookup('dmWlfareInfo');
-                const dtl = app.lookup('dsWlfareInfoDtl');
-                if (!dm) return {error: 'no dmWlfareInfo'};
-                const phones = [];
-                if (dtl) {
-                    for (let i = 0; i < dtl.getRowCount(); i++) {
-                        if (dtl.getValue(i, 'wlfareInfoDtlCd') === '010') {
-                            const p = dtl.getValue(i, 'wlfareInfoReldCn');
-                            if (p) phones.push(p);
-                        }
-                    }
-                }
-                return {
-                    target: dm.getValue('wlfareSprtTrgtCn') || '',
-                    benefit: dm.getValue('wlfareSprtBnftCn') || '',
-                    apply: dm.getValue('aplyMtdDc') || '',
-                    detail: dm.getValue('wlfareInfoOutlCn') || '',
-                    phones: phones,
-                };
-            } catch(e) {
-                return {error: e.toString()};
-            }
-        }
-    """)
-
-    if not data or 'error' in data:
-        print(f"\n    [DEBUG] evaluate 결과: {data}", flush=True)
-        return None
-
-    return {
-        "target_info": strip_html(data.get("target") or ""),
-        "benefit_info": strip_html(data.get("benefit") or ""),
-        "apply_place": strip_html(data.get("apply") or ""),
-        "detail_content": strip_html(data.get("detail") or ""),
-        "inq_place": ", ".join(data.get("phones") or []),
-    }
+    return parse_welfare_html(html)
 
 
 def run_phase0_detail(supabase) -> int:
@@ -351,11 +344,27 @@ def run_phase0_detail(supabase) -> int:
     MAX_CONSECUTIVE_FAIL = 5
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-        page = browser.new_page()
+        browser = pw.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled",
+            ],
+        )
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            locale="ko-KR",
+            viewport={"width": 1280, "height": 800},
+        )
+        context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        page = context.new_page()
 
-        # 워밍업 - 세션/쿠키 확립
+        # 워밍업 - 홈페이지 먼저 방문해서 세션/쿠키 확립
         try:
+            page.goto("https://www.bokjiro.go.kr/ssis-tbu/index.do",
+                      wait_until="domcontentloaded", timeout=15000)
+            time.sleep(1.0)
             page.goto("https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52005M.do",
                       wait_until="domcontentloaded", timeout=20000)
         except Exception:
@@ -408,6 +417,7 @@ def run_phase0_detail(supabase) -> int:
 
             time.sleep(WEB_SCRAPE_DELAY)
 
+        context.close()
         browser.close()
 
     print(f"\n  Phase 0 Detail 완료: 성공={ok}, 오류={fail}")

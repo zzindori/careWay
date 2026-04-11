@@ -265,14 +265,16 @@ def fetch_local_welfare_web(session: requests.Session, serv_id: str) -> dict | N
     )
     resp.raise_for_status()
 
-    # initParameter({...}) 안의 JSON 추출 - dmWlfareInfo를 포함한 블록 탐색
+    # initParameter({initValue: {dmWlfareInfo: "..."}}) 블록 탐색
+    # initValue를 가진 블록이 여러 개이므로, initValue 내부에 dmWlfareInfo가 있는 블록을 선택
     decoder = json.JSONDecoder()
     outer = None
     for m in re.finditer(r'initParameter\s*\(\s*(\{)', resp.text):
         start = m.start(1)
         try:
             obj, _ = decoder.raw_decode(resp.text, start)
-            if 'dmWlfareInfo' in obj:
+            iv = obj.get('initValue', {})
+            if isinstance(iv, dict) and 'dmWlfareInfo' in iv:
                 outer = obj
                 break
         except json.JSONDecodeError:
@@ -281,8 +283,9 @@ def fetch_local_welfare_web(session: requests.Session, serv_id: str) -> dict | N
     if not outer:
         return None
 
-    dm_raw = outer.get("dmWlfareInfo", "{}")
-    dtl_raw = outer.get("dsWlfareInfoDtl", "[]")
+    init_val = outer.get("initValue", {})
+    dm_raw = init_val.get("dmWlfareInfo", "{}")
+    dtl_raw = init_val.get("dsWlfareInfoDtl", "[]")
     dm = json.loads(dm_raw) if isinstance(dm_raw, str) else dm_raw
     dtl = json.loads(dtl_raw) if isinstance(dtl_raw, str) else dtl_raw
 

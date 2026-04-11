@@ -265,15 +265,14 @@ def fetch_local_welfare_web(session: requests.Session, serv_id: str) -> dict | N
     )
     resp.raise_for_status()
 
-    # initParameter({...}) 안의 JSON 추출 - raw_decode로 중첩 JSON 정확히 파싱
-    # (비탐욕 정규식은 JSON 내부 `)` 문자를 잘못 종단점으로 인식하는 버그가 있음)
+    # initParameter({...}) 안의 JSON 추출 - dmWlfareInfo를 포함한 블록 탐색
     decoder = json.JSONDecoder()
     outer = None
     for m in re.finditer(r'initParameter\s*\(\s*(\{)', resp.text):
         start = m.start(1)
         try:
             obj, _ = decoder.raw_decode(resp.text, start)
-            if 'initValue' in obj:
+            if 'dmWlfareInfo' in obj:
                 outer = obj
                 break
         except json.JSONDecodeError:
@@ -282,16 +281,10 @@ def fetch_local_welfare_web(session: requests.Session, serv_id: str) -> dict | N
     if not outer:
         return None
 
-    init_val = outer.get("initValue", {})
-    dm_raw = init_val.get("dmWlfareInfo", "{}")
-    dtl_raw = init_val.get("dsWlfareInfoDtl", "[]")
+    dm_raw = outer.get("dmWlfareInfo", "{}")
+    dtl_raw = outer.get("dsWlfareInfoDtl", "[]")
     dm = json.loads(dm_raw) if isinstance(dm_raw, str) else dm_raw
     dtl = json.loads(dtl_raw) if isinstance(dtl_raw, str) else dtl_raw
-
-    # TODO: 확인 후 제거 - initValue 키 목록 출력 (첫 1회만)
-    if not dm and not getattr(fetch_local_welfare_web, '_debug_done', False):
-        fetch_local_welfare_web._debug_done = True
-        print(f"\n    [DEBUG] initValue keys: {list(init_val.keys())}", flush=True)
 
     phones = [d["wlfareInfoReldCn"] for d in dtl if d.get("wlfareInfoDtlCd") == "010" and d.get("wlfareInfoReldCn")]
 

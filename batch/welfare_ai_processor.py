@@ -286,22 +286,9 @@ def parse_welfare_html(html: str) -> dict | None:
 
 
 def fetch_local_welfare_playwright(page, serv_id: str) -> dict | None:
-    """Playwright로 복지로 상세 페이지 로드 후 HTTP 응답 HTML 직접 파싱.
+    """Playwright로 복지로 상세 페이지 로드 후 page.content()로 HTML 파싱.
     page는 매 요청마다 새로 생성된 페이지여야 함 (SPA 라우터 우회).
     """
-    html_captured = [None]
-    captured_status = [None]
-
-    def on_response(response):
-        if serv_id in response.url:
-            captured_status[0] = response.status
-            if response.status == 200:
-                try:
-                    html_captured[0] = response.body().decode('utf-8', errors='replace')
-                except Exception:
-                    pass
-
-    page.on("response", on_response)
     try:
         page.goto(
             f"{BOKJIRO_WEB_URL}?wlfareInfoId={serv_id}&wlfareInfoReldBztpCd=02",
@@ -310,16 +297,15 @@ def fetch_local_welfare_playwright(page, serv_id: str) -> dict | None:
         )
     except Exception as e:
         print(f"\n    [DEBUG] goto 실패: {str(e)[:120]}", flush=True)
-    finally:
-        page.remove_listener("response", on_response)
+        return None
 
-    html = html_captured[0] or ""
+    html = page.content()
     if not html:
-        print(f"\n    [DEBUG] HTML 미캡처 (status={captured_status[0]})", flush=True)
+        print(f"\n    [DEBUG] page.content() 비어있음", flush=True)
         return None
 
     if 'initParameter' not in html:
-        print(f"\n    [DEBUG] HTML {len(html)}자 캡처됨, initParameter 없음 (서버가 데이터 미포함)", flush=True)
+        print(f"\n    [DEBUG] HTML {len(html)}자, initParameter 없음 (서버가 데이터 미포함)", flush=True)
         return None
 
     result = parse_welfare_html(html)

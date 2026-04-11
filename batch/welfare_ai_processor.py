@@ -62,7 +62,8 @@ WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/NationalWelfareInformation
 
 # 지자체복지서비스 API (한국사회보장정보원, 동일 제공기관 B554287)
 LOCAL_WELFARE_LIST_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfarelist"
-LOCAL_WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfaredetailed"
+LOCAL_WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfaredetailed"  # 사용 안 함 (웹 스크래핑으로 대체)
+BOKJIRO_WEB_URL = "https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52013M.do"
 
 MODEL = "gemini-2.0-flash"
 API_REQUEST_DELAY = 1.2    # 복지로 API rate limit 방지 (개발계정 100 RPM → 최소 0.6초, 여유분 포함)
@@ -234,8 +235,52 @@ def run_phase0(supabase) -> int:
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# PHASE 0 DETAIL: 지자체복지서비스 상세 수집 → DB 저장
+# PHASE 0 DETAIL: 지자체복지서비스 상세 수집 → DB 저장 (복지로 웹 스크래핑)
 # ════════════════════════════════════════════════════════════════════════════════
+
+WEB_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
+def strip_html(text: str) -> str:
+    """HTML 태그 제거, <br/> → 줄바꿈"""
+    if not text:
+        return ""
+    text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+    text = re.sub(r'<[^>]+>', '', text)
+    return text.strip()
+
+def fetch_local_welfare_web(serv_id: str) -> dict | None:
+    """복지로 웹에서 지자체복지서비스 상세 스크래핑 (HTML 내 JSON 파싱)"""
+    resp = requests.get(
+        BOKJIRO_WEB_URL,
+        params={"wlfareInfoId": serv_id, "wlfareInfoReldBztpCd": "02"},
+        headers=WEB_HEADERS,
+        timeout=15,
+    )
+    resp.raise_for_status()
+
+    # initParameter({...}); 안의 JSON 추출
+    m = re.search(
+        r'initParameter\((.+?)\);\s*cpr\.core\.Platform\.INSTANCE\.lookup',
+        resp.text, re.DOTALL
+    )
+    if not m:
+        return None
+
+    outer = json.loads(m.group(1))
+    init_val = outer.get("initValue", {})
+    dm = json.loads(init_val.get("dmWlfareInfo", "{}"))
+    dtl = json.loads(init_val.get("dsWlfareInfoDtl", "[]"))
+
+    phones = [d["wlfareInfoReldCn"] for d in dtl if d.get("wlfareInfoDtlCd") == "010" and d.get("wlfareInfoReldCn")]
+
+    return {
+        "target_info": strip_html(dm.get("wlfareSprtTrgtCn") or ""),
+        "benefit_info": strip_html(dm.get("wlfareSprtBnftCn") or ""),
+        "apply_place": strip_html(dm.get("aplyMtdDc") or ""),
+        "detail_content": strip_html(dm.get("wlfareInfoOutlCn") or ""),
+        "inq_place": ", ".join(phones),
+    }
+
 
 def run_phase0_detail(supabase) -> int:
     print("\n━━━ PHASE 0 DETAIL: 지자체복지서비스 상세 수집 ━━━")
@@ -269,32 +314,22 @@ def run_phase0_detail(supabase) -> int:
         print(f"  [{i+1}/{len(all_services)}] {name_short}... ", end="", flush=True)
 
         try:
-            resp = requests.get(LOCAL_WELFARE_DETAIL_URL, params={
-                "serviceKey": LOCAL_WELFARE_API_KEY,
-                "servId": serv_id,
-            }, timeout=15)
-            if resp.status_code == 429:
-                print(f"\n  ⚠ 일일 100건 한도 도달 → 오늘 종료 (내일 이어서 수집)")
-                break
-            resp.raise_for_status()
+            data = fetch_local_welfare_web(serv_id)
+            if not data:
+                print("⚠ 파싱 실패")
+                fail += 1
+                time.sleep(API_REQUEST_DELAY)
+                continue
 
-            root = ET.fromstring(resp.text)
-
-            def txt(tag):
-                el = root.find(f".//{tag}")
-                return (el.text or "").strip() if el is not None else ""
-
-            detail_parts = []
-            for tag in ["servDgst", "tgtrDscr", "givBnfScpCn", "aplyMtd", "servDtlLink"]:
-                val = txt(tag)
-                if val:
-                    detail_parts.append(val)
-
-            supabase.table("welfare_services").update({
-                "detail_content": "\n".join(detail_parts),
-                "inq_place": txt("inqplCn"),
+            update = {
+                "target_info": data["target_info"],
+                "benefit_info": data["benefit_info"],
+                "apply_place": data["apply_place"],
+                "detail_content": data["detail_content"],
+                "inq_place": data["inq_place"],
                 "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
-            }).eq("id", svc["id"]).execute()
+            }
+            supabase.table("welfare_services").update(update).eq("id", svc["id"]).execute()
             print("✓")
             ok += 1
 

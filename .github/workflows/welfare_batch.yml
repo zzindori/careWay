@@ -17,6 +17,7 @@ on:
           - '0_detail'
           - '1'
           - '2'
+          - fix_region
 
 jobs:
   batch:
@@ -80,3 +81,9 @@ jobs:
           WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
           LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
         run: python batch/welfare_ai_processor.py --phase 2
+
+      - name: Fix Region - 지역 후처리
+        if: ${{ inputs.phase == 'fix_region' }}
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python batch/welfare_ai_processor.py --phase fix_region

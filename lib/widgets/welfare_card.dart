@@ -5,13 +5,15 @@ import '../config/app_theme.dart';
 class WelfareCard extends StatelessWidget {
   final WelfareService service;
   final VoidCallback onTap;
-  final bool? isMatched; // null=모름, true=해당, false=미해당
+  final bool? isMatched;
+  final List<String> matchReasons;
 
   const WelfareCard({
     super.key,
     required this.service,
     required this.onTap,
     this.isMatched,
+    this.matchReasons = const [],
   });
 
   // benefitInfo가 복지로 안내 문구인 경우 targetInfo로 폴백
@@ -132,6 +134,27 @@ class WelfareCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 8),
+            // 해당 사유 칩 (Tier 1 전용)
+            if (matchReasons.isNotEmpty) ...[
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: matchReasons.map((r) => Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                  ),
+                  child: Text(r,
+                      style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.green,
+                          fontWeight: FontWeight.w500)),
+                )).toList(),
+              ),
+              const SizedBox(height: 8),
+            ],
             // 신청처 + 금액 + 난이도
             Row(
               children: [

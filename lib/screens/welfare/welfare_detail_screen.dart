@@ -36,9 +36,7 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
+    if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
     if (_error != null || _service == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('서비스 상세')),
@@ -46,68 +44,115 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
             style: const TextStyle(color: AppTheme.textSecondary))),
       );
     }
-    return _buildDetail(context, _service!);
+    final profile = context.read<ProfileProvider>().selectedProfile;
+    return _buildDetail(context, _service!, profile);
   }
 
-  Widget _buildDetail(BuildContext context, WelfareService service) {
+  Widget _buildDetail(BuildContext context, WelfareService service, profile) {
+    final categoryColor = AppTheme.categoryColors[service.category] ?? AppTheme.primary;
+    final matchReasons = profile != null ? service.getMatchReasons(profile) : <String>[];
+    final tier = profile != null ? service.getMatchTier(profile) : -1;
+
     return Scaffold(
-      appBar: AppBar(title: Text(service.name)),
+      appBar: AppBar(title: Text(service.name, maxLines: 1, overflow: TextOverflow.ellipsis)),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          // 배지
-          Row(children: [
-            _buildCategoryBadge(service),
-            const SizedBox(width: 8),
-            _buildDifficultyBadge(service),
-            if (service.isDeadlineSoon) ...[
-              const SizedBox(width: 8),
-              _buildDeadlineBadge(service),
-            ],
+
+          // ── 헤더 배지 ──────────────────────────────────
+          Wrap(spacing: 8, runSpacing: 6, children: [
+            _badge(service.categoryLabel, categoryColor),
+            if (tier == 1) _badge('✓ 즉시 신청 가능', Colors.green),
+            if (tier == 2) _badge('★ 등급 후 신청 가능', const Color(0xFFF57C00)),
+            if (service.isDeadlineSoon)
+              _badge('D-${service.deadline!.difference(DateTime.now()).inDays} 마감 임박', AppTheme.warning),
           ]),
           const SizedBox(height: 16),
-          // 개요
-          Text(
-            service.description,
-            style: const TextStyle(fontSize: 15, color: AppTheme.textSecondary, height: 1.6),
+
+          // ── 개요 ───────────────────────────────────────
+          if (service.description.isNotEmpty)
+            Text(service.description,
+                style: const TextStyle(fontSize: 15, color: AppTheme.textSecondary, height: 1.6)),
+
+          // ── 해당 사유 ──────────────────────────────────
+          if (matchReasons.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            _section(
+              title: '해당 사유',
+              icon: Icons.check_circle_outline,
+              iconColor: Colors.green,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: matchReasons.map((r) => Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.green.withValues(alpha: 0.35)),
+                  ),
+                  child: Text(r, style: const TextStyle(
+                      fontSize: 12, color: Colors.green, fontWeight: FontWeight.w600)),
+                )).toList(),
+              ),
+            ),
+          ],
+
+          // ── 지원 대상 ──────────────────────────────────
+          const SizedBox(height: 16),
+          _section(
+            title: '지원 대상',
+            icon: Icons.group_outlined,
+            child: _textOrPending(service.targetInfo),
           ),
 
-          // 지원 대상
-          if (service.targetInfo.isNotEmpty) ...[
-            const SizedBox(height: 24),
-            _buildInfoSection('지원 대상', service.targetInfo, Icons.group_outlined),
-          ],
+          // ── 지원 내용 ──────────────────────────────────
+          const SizedBox(height: 12),
+          _section(
+            title: '지원 내용',
+            icon: Icons.card_giftcard_outlined,
+            child: _textOrPending(
+              (service.benefitInfo.contains('복지로') || service.benefitInfo.length < 10)
+                  ? '' : service.benefitInfo,
+            ),
+          ),
 
-          // 지원 내용
-          if (service.benefitInfo.isNotEmpty &&
-              !service.benefitInfo.contains('복지로') &&
-              service.benefitInfo.length >= 10) ...[
-            const SizedBox(height: 16),
-            _buildInfoSection('지원 내용', service.benefitInfo, Icons.card_giftcard_outlined),
-          ],
+          // ── 신청 방법 ──────────────────────────────────
+          const SizedBox(height: 12),
+          _section(
+            title: '신청 방법',
+            icon: Icons.how_to_reg_outlined,
+            child: service.applmetList.isNotEmpty
+                ? _applyMethods(service.applmetList)
+                : service.applyPlace.isNotEmpty
+                    ? Text(service.applyPlace,
+                        style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary, height: 1.5))
+                    : _pendingText(),
+          ),
 
-          // 상세 내용 (배치 수집)
-          if (service.detailContent.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _buildInfoSection('상세 내용', service.detailContent, Icons.article_outlined),
-          ],
+          // ── 상세 안내 ──────────────────────────────────
+          const SizedBox(height: 12),
+          _section(
+            title: '상세 안내',
+            icon: Icons.article_outlined,
+            child: service.detailContent.isNotEmpty
+                ? Text(service.detailContent,
+                    style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary, height: 1.6))
+                : _pendingText(),
+          ),
 
-          // 신청 방법 (배치 수집)
-          if (service.applmetList.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _buildApplyMethods(service.applmetList),
-          ] else if (service.applyPlace.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _buildInfoSection('신청처', service.applyPlace, Icons.location_on_outlined),
-          ],
+          // ── 문의처 ─────────────────────────────────────
+          const SizedBox(height: 12),
+          _section(
+            title: '문의처',
+            icon: Icons.phone_outlined,
+            child: service.inqPlace.isNotEmpty
+                ? Text(service.inqPlace,
+                    style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary, height: 1.5))
+                : _pendingText(),
+          ),
 
-          // 문의처 (배치 수집)
-          if (service.inqPlace.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _buildInfoSection('문의처', service.inqPlace, Icons.phone_outlined),
-          ],
-
-          const SizedBox(height: 32),
+          const SizedBox(height: 24),
           OutlinedButton.icon(
             onPressed: () {},
             icon: const Icon(Icons.bookmark_add_outlined),
@@ -125,83 +170,85 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
     );
   }
 
-  Widget _buildApplyMethods(List<Map<String, String>> methods) {
+  Widget _section({
+    required String title,
+    required IconData icon,
+    required Widget child,
+    Color? iconColor,
+  }) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.divider),
+      ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Row(children: [
-          Icon(Icons.how_to_reg_outlined, color: AppTheme.primary, size: 20),
-          SizedBox(width: 8),
-          Text('신청 방법', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
+        Row(children: [
+          Icon(icon, size: 16, color: iconColor ?? AppTheme.primary),
+          const SizedBox(width: 6),
+          Text(title,
+              style: const TextStyle(
+                  fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w600)),
         ]),
-        const SizedBox(height: 12),
-        ...methods.map((m) {
-          final name = m['method'] ?? '';
-          final desc = m['description'] ?? '';
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Padding(
-                padding: EdgeInsets.only(top: 2),
-                child: Icon(Icons.arrow_right, color: AppTheme.primary, size: 20),
-              ),
-              const SizedBox(width: 4),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
-                if (desc.isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Text(desc, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary, height: 1.5)),
-                ],
-              ])),
-            ]),
-          );
-        }),
+        const SizedBox(height: 10),
+        child,
       ]),
     );
   }
 
-  Widget _buildInfoSection(String title, String content, IconData icon) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Icon(icon, color: AppTheme.primary, size: 20),
-        const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-          const SizedBox(height: 4),
-          Text(content, style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary, height: 1.5)),
-        ])),
-      ]),
+  Widget _textOrPending(String text) {
+    return text.trim().isNotEmpty
+        ? Text(text, style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary, height: 1.6))
+        : _pendingText();
+  }
+
+  Widget _pendingText() {
+    return Row(children: [
+      Icon(Icons.hourglass_empty, size: 14, color: Colors.grey.shade400),
+      const SizedBox(width: 6),
+      Text('정보 수집 중', style: TextStyle(fontSize: 13, color: Colors.grey.shade400)),
+    ]);
+  }
+
+  Widget _applyMethods(List<Map<String, String>> methods) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: methods.map((m) {
+        final name = m['method'] ?? '';
+        final desc = m['description'] ?? '';
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Padding(
+              padding: EdgeInsets.only(top: 2),
+              child: Icon(Icons.arrow_right, color: AppTheme.primary, size: 20),
+            ),
+            const SizedBox(width: 4),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              if (name.isNotEmpty)
+                Text(name, style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
+              if (desc.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(desc, style: const TextStyle(
+                    fontSize: 12, color: AppTheme.textSecondary, height: 1.5)),
+              ],
+            ])),
+          ]),
+        );
+      }).toList(),
     );
   }
 
-  Widget _buildCategoryBadge(WelfareService service) {
-    final color = AppTheme.categoryColors[service.category] ?? AppTheme.primary;
+  Widget _badge(String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),
-      child: Text(service.categoryLabel, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
-    );
-  }
-
-  Widget _buildDifficultyBadge(WelfareService service) {
-    final colors = [Colors.green, Colors.orange, Colors.red];
-    final color = colors[(service.difficulty - 1).clamp(0, 2)];
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
-      child: Text('신청 ${service.difficultyLabel}', style: TextStyle(color: color, fontSize: 12)),
-    );
-  }
-
-  Widget _buildDeadlineBadge(WelfareService service) {
-    final days = service.deadline!.difference(DateTime.now()).inDays;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: AppTheme.warning.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
-      child: Text('D-$days 마감 임박', style: const TextStyle(color: AppTheme.warning, fontSize: 12, fontWeight: FontWeight.w600)),
+      decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),
+      child: Text(label,
+          style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
     );
   }
 }

@@ -16,20 +16,23 @@ class WelfareService {
   final bool isRenewable;     // 매년 갱신 필요
 
   // 필터 조건
-  final int minAge;               // 최소 나이 (0 = 제한없음)
-  final int maxIncomeLevel;       // 최대 소득분위 (10 = 제한없음)
-  final bool requiresLtcGrade;    // 장기요양등급 필수
-  final bool requiresAlone;       // 독거 필수
-  final bool requiresBasicRecipient; // 기초수급자 필수
+  final int minAge;
+  final int maxIncomeLevel;
+  final bool requiresLtcGrade;
+  final bool requiresAlone;
+  final bool requiresBasicRecipient;
+  final bool requiresVeteran;    // 보훈대상자 필수
+  final bool requiresDisability; // 장애인 전용
 
-  // AI가 추출한 대상 연령층 (DB: target_age_group)
-  // elderly / youth / child / adult / all / unknown
-  final String targetAgeGroup;
+  // AI 분류 필드
+  final String targetAgeGroup;  // elderly/youth/child/infant/adult/veteran/disabled/all/unknown
+  final String region;           // 서울 / 경기 / 전국 등
+  final List<String> serviceTags; // dementia/mobility/daily_care/hearing/vision/medical
 
-  // 배치 수집된 상세 정보 (DB: applmet_list, inq_place, detail_content)
-  final List<Map<String, String>> applmetList; // 신청방법 목록
-  final String inqPlace;                       // 문의처
-  final String detailContent;                  // 상세 내용
+  // 배치 수집된 상세 정보
+  final List<Map<String, String>> applmetList;
+  final String inqPlace;
+  final String detailContent;
 
   const WelfareService({
     required this.id,
@@ -50,7 +53,11 @@ class WelfareService {
     this.requiresLtcGrade = false,
     this.requiresAlone = false,
     this.requiresBasicRecipient = false,
+    this.requiresVeteran = false,
+    this.requiresDisability = false,
     this.targetAgeGroup = 'unknown',
+    this.region = '',
+    this.serviceTags = const [],
     this.applmetList = const [],
     this.inqPlace = '',
     this.detailContent = '',
@@ -87,70 +94,77 @@ class WelfareService {
   static const _nonElderlyKeywords = [
     '청소년', '아동', '어린이', '초등', '중학', '고등', '학생',
     '임신', '임산부', '산모', '영유아', '영아', '유아', '신생아',
-    '청년', '대학생', // 만 39세 이하 대상 청년 정책
+    '청년', '대학생',
   ];
 
   static const _elderlyKeywords = [
     '노인', '어르신', '65세', '60세', '경로', '실버', '고령',
   ];
 
-  // targetInfo + name + description 에서 비노인 키워드 포함 여부
   bool get _isObviouslyNotElderly {
     final text = '$name $targetInfo $description';
     return _nonElderlyKeywords.any((k) => text.contains(k));
   }
 
-  // 노인 대상임을 알 수 있는 서비스인지
   bool get isElderlyTargeted {
-    // DB AI 분류 우선 사용
     if (targetAgeGroup == 'elderly' || targetAgeGroup == 'all') return true;
-    if (targetAgeGroup == 'youth' || targetAgeGroup == 'child') return false;
-    // DB에 아직 분류 안된 경우 → 키워드 폴백
+    if (targetAgeGroup == 'youth' ||
+        targetAgeGroup == 'child' ||
+        targetAgeGroup == 'infant') {
+      return false;
+    }
     final text = '$name $targetInfo $description';
     return _elderlyKeywords.any((k) => text.contains(k));
   }
 
-  // DB에 실제 필터 조건이 설정된 서비스인지
   bool get hasFilterCriteria =>
-      minAge > 0 || maxIncomeLevel < 10 || requiresLtcGrade || requiresAlone || requiresBasicRecipient;
+      minAge > 0 ||
+      maxIncomeLevel < 10 ||
+      requiresLtcGrade ||
+      requiresAlone ||
+      requiresBasicRecipient ||
+      requiresVeteran ||
+      requiresDisability;
+
+  // ─── 지역 매칭 ────────────────────────────────────────────
+  static String _normalizeRegion(String r) => r
+      .replaceAll('특별시', '').replaceAll('광역시', '')
+      .replaceAll('특별자치시', '').replaceAll('특별자치도', '')
+      .replaceAll('도', '').trim();
+
+  bool _regionMatches(String profileRegion) {
+    if (region.isEmpty || region == '전국') return true;
+    return _normalizeRegion(region) == _normalizeRegion(profileRegion);
+  }
 
   // ─── 자격 검사 ───────────────────────────────────────────
 
-  // 프로필 조건에 맞지 않는 이유 목록 (빈 리스트 = 해당됨)
   List<String> getMismatchReasons(ParentProfile profile) {
-    final reasons = <String>[];
     final age = profile.age;
     final incomeLevel = profile.incomeLevel ?? 10;
+    final reasons = <String>[];
 
-    // 1. DB AI 분류 우선 적용
-    if (targetAgeGroup == 'youth') {
-      reasons.add('청소년 대상 서비스');
-      return reasons;
-    }
-    if (targetAgeGroup == 'child') {
-      reasons.add('아동·영유아 대상 서비스');
-      return reasons;
-    }
-
-    // 2. DB 미분류(unknown) → 키워드로 보조 필터
-    if (targetAgeGroup == 'unknown' && _isObviouslyNotElderly) {
-      reasons.add('대상자 연령 조건 미해당');
-      return reasons;
-    }
-
-    // 3. DB에 설정된 구조화 조건 체크
+    // 나이
     if (minAge > 0 && age < minAge) {
-      reasons.add('만 $minAge세 이상 필요 (현재 ${age}세)');
+      reasons.add('만 $minAge세 이상 필요 (현재 $age세)');
     }
+    // 지역
+    if (!_regionMatches(profile.region)) {
+      reasons.add('$region 지역 서비스');
+    }
+    // 소득
     if (maxIncomeLevel < 10 && incomeLevel > maxIncomeLevel) {
-      reasons.add('소득 ${maxIncomeLevel}분위 이하 필요 (현재 ${incomeLevel}분위)');
+      reasons.add('소득 $maxIncomeLevel분위 이하 필요 (현재 $incomeLevel분위)');
     }
+    // 장기요양등급
     if (requiresLtcGrade && !profile.hasLtcGrade) {
       reasons.add('장기요양 등급 보유자 전용');
     }
+    // 독거
     if (requiresAlone && !profile.liveAlone) {
       reasons.add('독거 노인 전용');
     }
+    // 기초수급
     if (requiresBasicRecipient && !profile.isBasicRecipient) {
       reasons.add('기초생활수급자 전용');
     }
@@ -160,9 +174,89 @@ class WelfareService {
 
   bool matchesProfile(ParentProfile profile) => getMismatchReasons(profile).isEmpty;
 
-  // "✓ 해당됨" 뱃지를 보여줄 만큼 근거가 충분한가:
-  // - DB에 조건이 있고 통과했거나
-  // - 노인 대상 서비스로 식별된 경우
+  // ─── 해당 사유 (Tier 1 표시용) ────────────────────────────
+  List<String> getMatchReasons(ParentProfile profile) {
+    final reasons = <String>[];
+
+    if (minAge > 0 && profile.age >= minAge) {
+      reasons.add('만 $minAge세 이상');
+    } else if (isElderlyTargeted) {
+      reasons.add('노인 대상');
+    }
+    if (region.isNotEmpty && region != '전국') {
+      reasons.add('$region 지역');
+    }
+    if (maxIncomeLevel < 10) {
+      reasons.add('소득 $maxIncomeLevel분위 이하');
+    }
+    if (requiresLtcGrade && profile.hasLtcGrade && profile.ltcGrade != null) {
+      reasons.add('장기요양 ${profile.ltcGrade}등급');
+    }
+    if (requiresAlone && profile.liveAlone) {
+      reasons.add('독거 노인');
+    }
+    if (requiresBasicRecipient && profile.isBasicRecipient) {
+      reasons.add('기초수급자');
+    }
+    if (profile.isVeteran && (targetAgeGroup == 'veteran' || requiresVeteran)) {
+      reasons.add('보훈대상자');
+    }
+    return reasons;
+  }
+
+  // ─── 3단계 매칭 티어 ────────────────────────────────────────
+  // 0: 표시 안함
+  // 1: 🔴 지금 바로 신청 (조건 모두 충족, 장기요양 불필요)
+  // 2: 🟡 등급 신청 후 가능 (장기요양 등급 필요, 현재 없음)
+  // 3: 🔵 알아두면 좋아요 (조건 일부 미충족 or 분류 불명확)
+
+  int getMatchTier(ParentProfile profile) {
+    // ── Tier 0: 대상 아님 ─────────────────────────────────
+    if (targetAgeGroup == 'youth' || targetAgeGroup == 'child' ||
+        targetAgeGroup == 'infant' || targetAgeGroup == 'disabled') {
+      return 0;
+    }
+    if (targetAgeGroup == 'unknown' && _isObviouslyNotElderly) return 0;
+    if (requiresDisability) return 0;
+
+    // 보훈 전용인데 보훈대상자 아님
+    final isVeteranService = targetAgeGroup == 'veteran' ||
+        requiresVeteran || serviceTags.contains('veteran');
+    if (isVeteranService && !profile.isVeteran) return 0;
+
+    // 지역 불일치 → 숨김
+    if (!_regionMatches(profile.region)) return 0;
+
+    // ── 개별 조건 평가 ────────────────────────────────────
+    final incomeLevel = profile.incomeLevel ?? 10;
+    final ageOk = minAge <= 0 || profile.age >= minAge;
+    final incomeOk = maxIncomeLevel >= 10 || incomeLevel <= maxIncomeLevel;
+    final aloneOk = !requiresAlone || profile.liveAlone;
+    final basicOk = !requiresBasicRecipient || profile.isBasicRecipient;
+
+    final isRelevantGroup = isElderlyTargeted ||
+        ['elderly', 'all', 'adult'].contains(targetAgeGroup) ||
+        (isVeteranService && profile.isVeteran);
+
+    // ── Tier 2: 장기요양 등급 필요 & 현재 없음 ──────────────
+    if (requiresLtcGrade && !profile.hasLtcGrade) {
+      if (ageOk && incomeOk && aloneOk && basicOk) return 2;
+      if (isRelevantGroup) return 3;
+      return 0;
+    }
+
+    // ── Tier 1: 모든 조건 충족 + 분류 명확 ─────────────────
+    if (ageOk && incomeOk && aloneOk && basicOk) {
+      if (isRelevantGroup && canShowMatchedBadge) return 1;
+      // 분류 불명확(unknown) → 🔵
+      return 3;
+    }
+
+    // ── Tier 3: 조건 일부 미충족 ────────────────────────────
+    if (isRelevantGroup) return 3;
+    return 0;
+  }
+
   bool get canShowMatchedBadge => hasFilterCriteria || isElderlyTargeted;
 
   factory WelfareService.fromJson(Map<String, dynamic> json) {
@@ -190,7 +284,14 @@ class WelfareService {
       requiresLtcGrade: json['requires_ltc_grade'] as bool? ?? false,
       requiresAlone: json['requires_alone'] as bool? ?? false,
       requiresBasicRecipient: json['requires_basic_recipient'] as bool? ?? false,
+      requiresVeteran: json['requires_veteran'] as bool? ?? false,
+      requiresDisability: json['requires_disability'] as bool? ?? false,
       targetAgeGroup: json['target_age_group'] as String? ?? 'unknown',
+      region: json['region'] as String? ?? '',
+      serviceTags: (json['service_tags'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
       applmetList: (json['applmet_list'] as List<dynamic>?)
               ?.map((e) => Map<String, String>.from(
                     (e as Map<String, dynamic>).map((k, v) => MapEntry(k, v?.toString() ?? '')),

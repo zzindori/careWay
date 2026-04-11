@@ -7,6 +7,9 @@ class ProfileCard extends StatelessWidget {
   final bool isSelected;
   final VoidCallback onTap;
   final VoidCallback onEdit;
+  final int? tier1Count;
+  final int? tier2Count;
+  final int? tier3Count;
 
   const ProfileCard({
     super.key,
@@ -14,6 +17,9 @@ class ProfileCard extends StatelessWidget {
     required this.isSelected,
     required this.onTap,
     required this.onEdit,
+    this.tier1Count,
+    this.tier2Count,
+    this.tier3Count,
   });
 
   @override
@@ -80,6 +86,10 @@ class ProfileCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                   _buildTags(profile),
+                  if (_hasAnyCounts) ...[
+                    const SizedBox(height: 8),
+                    _buildTierSummary(),
+                  ],
                 ],
               ),
             ),
@@ -91,6 +101,39 @@ class ProfileCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  bool get _hasAnyCounts =>
+      (tier1Count ?? 0) > 0 || (tier2Count ?? 0) > 0 || (tier3Count ?? 0) > 0;
+
+  Widget _buildTierSummary() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 4,
+      children: [
+        if ((tier1Count ?? 0) > 0)
+          _tierBadge('즉시신청 $tier1Count건', const Color(0xFFE53935)),
+        if ((tier2Count ?? 0) > 0)
+          _tierBadge('등급후신청 $tier2Count건', const Color(0xFFF57C00)),
+        if ((tier3Count ?? 0) > 0)
+          _tierBadge('참고 $tier3Count건', AppTheme.secondary),
+      ],
+    );
+  }
+
+  Widget _tierBadge(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600),
       ),
     );
   }
@@ -112,7 +155,9 @@ class ProfileCard extends StatelessWidget {
     final tags = <String>[];
     if (profile.isBasicRecipient) tags.add('기초수급');
     if (profile.liveAlone) tags.add('독거');
-    if (profile.hasLtcGrade) tags.add('장기요양 ${profile.ltcGrade}등급');
+    if (profile.ltcGradeStatus == 'has') tags.add('장기요양 ${profile.ltcGrade}등급');
+    if (profile.ltcGradeStatus == 'applying') tags.add('장기요양 신청 중');
+    if (profile.isVeteran) tags.add('보훈대상자');
     if (tags.isEmpty) return const SizedBox.shrink();
 
     return Wrap(

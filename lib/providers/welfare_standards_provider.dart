@@ -8,7 +8,6 @@ class WelfareStandardsProvider extends ChangeNotifier {
 
   Map<int, LtcGradeBenefit> _ltcBenefits = {};
   List<IncomeStandard> _incomeStandards = [];
-  Map<String, int> _basicPensionCriteria = {}; // 단독/부부 → 소득인정액
   bool _isLoaded = false;
 
   Map<int, LtcGradeBenefit> get ltcBenefits => _ltcBenefits;
@@ -41,12 +40,6 @@ class WelfareStandardsProvider extends ChangeNotifier {
       _incomeStandards = (incRes as List)
           .map((r) => IncomeStandard.fromJson(r))
           .toList();
-
-      final pensionRes = await _client.from('basic_pension_criteria').select();
-      _basicPensionCriteria = {
-        for (final r in pensionRes as List)
-          r['household_type'] as String: r['income_limit'] as int
-      };
 
       _isLoaded = true;
       notifyListeners();

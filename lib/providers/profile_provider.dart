@@ -8,19 +8,27 @@ class ProfileProvider extends ChangeNotifier {
 
   List<ParentProfile> _profiles = [];
   ParentProfile? _selectedProfile;
-  List<WelfareService> _matchedServices = [];
-  List<WelfareService> _notMatchedServices = [];
   List<WelfareService> _allServices = [];
   bool _isLoading = false;
   String? _error;
 
+  // 3단계 티어 매칭 결과
+  List<WelfareService> _tier1Services = []; // 🔴 지금 바로 신청
+  List<WelfareService> _tier2Services = []; // 🟡 등급 신청 후 가능
+  List<WelfareService> _tier3Services = []; // 🔵 알아두면 좋아요
+
   List<ParentProfile> get profiles => _profiles;
   ParentProfile? get selectedProfile => _selectedProfile;
-  List<WelfareService> get matchedServices => _matchedServices;
-  List<WelfareService> get notMatchedServices => _notMatchedServices;
   List<WelfareService> get allServices => _allServices;
+  List<WelfareService> get tier1Services => _tier1Services;
+  List<WelfareService> get tier2Services => _tier2Services;
+  List<WelfareService> get tier3Services => _tier3Services;
   bool get isLoading => _isLoading;
   String? get error => _error;
+
+  // 구 API 호환
+  List<WelfareService> get matchedServices => _tier1Services;
+  List<WelfareService> get notMatchedServices => _tier3Services;
 
   void selectProfile(ParentProfile profile) {
     _selectedProfile = profile;
@@ -102,34 +110,37 @@ class ProfileProvider extends ChangeNotifier {
     }
   }
 
-  // 복지 서비스 매칭 (프로필 조건 기반 필터링)
+  // 시도명 정규화 (서울특별시 → 서울, 경기도 → 경기)
+  static String normalizeRegion(String r) => r
+      .replaceAll('특별시', '').replaceAll('광역시', '')
+      .replaceAll('특별자치시', '').replaceAll('특별자치도', '')
+      .replaceAll('도', '').trim();
+
+  /// 3단계 티어 매칭
   Future<void> matchWelfareServices(ParentProfile profile) async {
     _isLoading = true;
     notifyListeners();
 
     try {
       if (_allServices.isEmpty) {
-        await loadAllWelfareServices();
+        await loadAllWelfareServices(regionFilter: normalizeRegion(profile.region));
       }
 
-      _matchedServices = [];
-      _notMatchedServices = [];
+      _tier1Services = [];
+      _tier2Services = [];
+      _tier3Services = [];
 
       for (final s in _allServices) {
-        final reasons = s.getMismatchReasons(profile);
-        if (reasons.isEmpty) {
-          _matchedServices.add(s);
-        } else {
-          // 필터 기준이 실제로 설정된 서비스만 미해당에 표시
-          final hasRealCriteria = s.minAge > 0 ||
-              s.maxIncomeLevel < 10 ||
-              s.requiresLtcGrade ||
-              s.requiresAlone ||
-              s.requiresBasicRecipient;
-          if (hasRealCriteria) _notMatchedServices.add(s);
+        final tier = s.getMatchTier(profile);
+        if (tier == 1) {
+          _tier1Services.add(s);
+        } else if (tier == 2) {
+          _tier2Services.add(s);
+        } else if (tier == 3) {
+          _tier3Services.add(s);
         }
+        // tier == 0 → 표시 안함
       }
-
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -138,28 +149,32 @@ class ProfileProvider extends ChangeNotifier {
     }
   }
 
-  /// 모든 복지 서비스 로드 (캐시)
-  Future<void> loadAllWelfareServices() async {
+  Future<void> loadAllWelfareServices({String? regionFilter}) async {
     try {
-      final response = await _client.from('welfare_services').select();
+      dynamic query = _client.from('welfare_services').select();
+
+      if (regionFilter != null && regionFilter.isNotEmpty) {
+        query = query.or('region.eq.,region.eq.전국,region.eq.$regionFilter');
+      }
+
+      final response = await query;
 
       _allServices = (response as List)
           .map((json) => WelfareService.fromJson(json as Map<String, dynamic>))
           .toList();
+
+      notifyListeners();
     } catch (e) {
       _error = e.toString();
       _allServices = [];
     }
   }
 
-  /// 특정 ID의 복지 서비스 조회
   Future<WelfareService?> getWelfareService(String serviceId) async {
     try {
-      // 캐시에서 먼저 찾기
       try {
         return _allServices.firstWhere((s) => s.id == serviceId);
       } on StateError {
-        // 캐시에 없으면 DB에서 조회
         final response = await _client
             .from('welfare_services')
             .select()

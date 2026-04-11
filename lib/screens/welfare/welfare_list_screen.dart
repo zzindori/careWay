@@ -65,35 +65,27 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
               return const Center(child: CircularProgressIndicator());
             }
 
-            final matched = _filter(provider.matchedServices);
-            final notMatched = _filter(provider.notMatchedServices);
+            final tier1 = _filter(provider.tier1Services);
+            final tier2 = _filter(provider.tier2Services);
+            final tier3 = _filter(provider.tier3Services);
             final profile = provider.selectedProfile;
 
             return CustomScrollView(
               slivers: [
-                // 카테고리 필터
                 SliverToBoxAdapter(child: _buildCategoryFilter()),
 
-                // ── 해당 서비스 ──
+                // ── Tier 1: 지금 바로 신청 ──
                 SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                    child: Row(children: [
-                      Container(
-                        width: 4, height: 16,
-                        decoration: BoxDecoration(
-                          color: AppTheme.primary,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text('해당 서비스 ${matched.length}개',
-                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
-                    ]),
+                  child: _buildTierHeader(
+                    '지금 바로 신청',
+                    '${tier1.length}개',
+                    const Color(0xFFE53935),
+                    Icons.check_circle_outline,
+                    '조건이 모두 충족된 서비스예요',
                   ),
                 ),
 
-                if (matched.isEmpty)
+                if (tier1.isEmpty)
                   const SliverToBoxAdapter(
                     child: Padding(
                       padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -106,47 +98,60 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate(
-                        (_, i) => Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: WelfareCard(
-                            service: matched[i],
-                            isMatched: true,
-                            onTap: () => context.push('/welfare/${matched[i].id}'),
-                          ),
-                        ),
-                        childCount: matched.length,
+                        (_, i) {
+                          final svc = tier1[i];
+                          final matchReasons = profile != null
+                              ? svc.getMatchReasons(profile)
+                              : <String>[];
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: WelfareCard(
+                              service: svc,
+                              isMatched: true,
+                              matchReasons: matchReasons,
+                              onTap: () => context.push('/welfare/${svc.id}'),
+                            ),
+                          );
+                        },
+                        childCount: tier1.length,
                       ),
                     ),
                   ),
 
-                // ── 구분선 + 해당 안되는 서비스 헤더 ──
-                if (notMatched.isNotEmpty) ...[
+                // ── Tier 2: 등급 신청 후 가능 (신청 중인 경우만) ──
+                if (profile?.ltcGradeStatus == 'applying' && tier2.isNotEmpty) ...[
                   SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
-                      child: Row(
-                        children: [
-                          const Expanded(child: Divider(thickness: 1)),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            child: Row(
-                              children: [
-                                Icon(Icons.lock_outline, size: 14, color: Colors.grey.shade500),
-                                const SizedBox(width: 5),
-                                Text(
-                                  '현재 해당 안되는 서비스 ${notMatched.length}개',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade500,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Expanded(child: Divider(thickness: 1)),
-                        ],
+                    child: _buildTierHeader(
+                      '등급 받으면 바로 신청 가능',
+                      '${tier2.length}개',
+                      const Color(0xFFF57C00),
+                      Icons.hourglass_empty_outlined,
+                      '장기요양 등급 신청 중 → 판정 후 즉시 가능',
+                    ),
+                  ),
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    sliver: SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (_, i) => Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _buildTier2Card(context, tier2[i]),
+                        ),
+                        childCount: tier2.length,
                       ),
+                    ),
+                  ),
+                ],
+
+                // ── Tier 3: 알아두면 좋아요 ──
+                if (tier3.isNotEmpty) ...[
+                  SliverToBoxAdapter(
+                    child: _buildTierHeader(
+                      '알아두면 좋아요',
+                      '${tier3.length}개',
+                      AppTheme.secondary,
+                      Icons.bookmark_border_outlined,
+                      '일부 조건이 맞지 않지만 참고할 만한 서비스',
                     ),
                   ),
                   SliverPadding(
@@ -154,16 +159,16 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate(
                         (_, i) {
-                          final svc = notMatched[i];
+                          final svc = tier3[i];
                           final reasons = profile != null
                               ? svc.getMismatchReasons(profile)
                               : <String>[];
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 10),
-                            child: _buildNotMatchedCard(context, svc, reasons),
+                            child: _buildTier3Card(context, svc, reasons),
                           );
                         },
-                        childCount: notMatched.length,
+                        childCount: tier3.length,
                       ),
                     ),
                   ),
@@ -178,7 +183,81 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
     );
   }
 
-  Widget _buildNotMatchedCard(BuildContext context, WelfareService svc, List<String> reasons) {
+  Widget _buildTierHeader(
+      String title, String count, Color color, IconData icon, String subtitle) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(children: [
+                Icon(icon, size: 14, color: color),
+                const SizedBox(width: 5),
+                Text(title,
+                    style: TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w700, color: color)),
+                const SizedBox(width: 5),
+                Text(count,
+                    style: TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w600, color: color)),
+              ]),
+            ),
+          ]),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.only(left: 2),
+            child: Text(subtitle,
+                style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTier2Card(BuildContext context, WelfareService svc) {
+    return GestureDetector(
+      onTap: () => context.push('/welfare/${svc.id}'),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF8E1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFFFE082)),
+        ),
+        child: Row(children: [
+          const Icon(Icons.hourglass_empty, size: 18, color: Color(0xFFF57C00)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(svc.name,
+                  style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.textPrimary)),
+              if (svc.description.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(svc.description,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+              ],
+            ]),
+          ),
+          const Icon(Icons.chevron_right, size: 18, color: Color(0xFFF57C00)),
+        ]),
+      ),
+    );
+  }
+
+  Widget _buildTier3Card(
+      BuildContext context, WelfareService svc, List<String> reasons) {
     return GestureDetector(
       onTap: () => context.push('/welfare/${svc.id}'),
       child: Container(
@@ -192,7 +271,9 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
           Row(children: [
             Expanded(
               child: Text(svc.name,
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600,
+                  style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
                       color: Colors.grey.shade600)),
             ),
             Icon(Icons.chevron_right, size: 18, color: Colors.grey.shade400),
@@ -200,15 +281,18 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
           if (svc.description.isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(svc.description,
-                maxLines: 1, overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
           ],
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 4,
-            children: reasons.map((r) => _buildReasonChip(r)).toList(),
-          ),
+          if (reasons.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: reasons.map((r) => _buildReasonChip(r)).toList(),
+            ),
+          ],
         ]),
       ),
     );
@@ -235,6 +319,9 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
     if (reason.contains('나이') || reason.contains('세')) {
       return (Icons.cake_outlined, Colors.blue.shade600);
     }
+    if (reason.contains('노인') || reason.contains('어르신')) {
+      return (Icons.elderly_outlined, Colors.blue.shade600);
+    }
     if (reason.contains('소득') || reason.contains('분위')) {
       return (Icons.account_balance_wallet_outlined, Colors.orange.shade700);
     }
@@ -246,6 +333,15 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
     }
     if (reason.contains('기초생활') || reason.contains('수급')) {
       return (Icons.support_outlined, Colors.red.shade600);
+    }
+    if (reason.contains('보훈')) {
+      return (Icons.military_tech_outlined, Colors.indigo.shade600);
+    }
+    if (reason.contains('장애인')) {
+      return (Icons.accessible_outlined, Colors.green.shade700);
+    }
+    if (reason.contains('지역')) {
+      return (Icons.location_on_outlined, Colors.teal.shade600);
     }
     return (Icons.info_outline, Colors.grey.shade600);
   }

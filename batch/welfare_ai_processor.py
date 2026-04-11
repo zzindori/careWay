@@ -296,6 +296,12 @@ def fetch_local_welfare_playwright(page, serv_id: str) -> dict | None:
             except Exception:
                 pass
 
+    # SPA 라우터 우회: about:blank로 초기화 후 완전한 새 페이지 로드
+    try:
+        page.goto("about:blank", wait_until="domcontentloaded", timeout=5000)
+    except Exception:
+        pass
+
     page.on("response", on_response)
     try:
         page.goto(
@@ -310,10 +316,6 @@ def fetch_local_welfare_playwright(page, serv_id: str) -> dict | None:
 
     html = html_captured[0] or ""
     if not html:
-        try:
-            page.goto("about:blank", wait_until="domcontentloaded", timeout=5000)
-        except Exception:
-            pass
         return None
 
     return parse_welfare_html(html)

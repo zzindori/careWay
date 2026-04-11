@@ -111,10 +111,26 @@ class ProfileProvider extends ChangeNotifier {
   }
 
   // 시도명 정규화 (서울특별시 → 서울, 경기도 → 경기)
-  static String normalizeRegion(String r) => r
-      .replaceAll('특별시', '').replaceAll('광역시', '')
-      .replaceAll('특별자치시', '').replaceAll('특별자치도', '')
-      .replaceAll('도', '').trim();
+  static String normalizeRegion(String r) {
+    if (r.contains('서울')) return '서울';
+    if (r.contains('부산')) return '부산';
+    if (r.contains('대구')) return '대구';
+    if (r.contains('인천')) return '인천';
+    if (r.contains('광주')) return '광주';
+    if (r.contains('대전')) return '대전';
+    if (r.contains('울산')) return '울산';
+    if (r.contains('세종')) return '세종';
+    if (r.contains('경기')) return '경기';
+    if (r.contains('강원')) return '강원';
+    if (r.contains('충북') || r.contains('충청북')) return '충북';
+    if (r.contains('충남') || r.contains('충청남')) return '충남';
+    if (r.contains('전북') || r.contains('전라북')) return '전북';
+    if (r.contains('전남') || r.contains('전라남')) return '전남';
+    if (r.contains('경북') || r.contains('경상북')) return '경북';
+    if (r.contains('경남') || r.contains('경상남')) return '경남';
+    if (r.contains('제주')) return '제주';
+    return r;
+  }
 
   /// 3단계 티어 매칭
   Future<void> matchWelfareServices(ParentProfile profile) async {

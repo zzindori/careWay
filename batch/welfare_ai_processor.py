@@ -70,6 +70,32 @@ GEMINI_DELAY = 4.5         # Gemini 무료 티어: 15 RPM → 4초 간격
 
 # ── 환경변수 체크 ──────────────────────────────────────────────────────────────
 
+# ── 지역명 정규화 (서울특별시 → 서울, 경기도 → 경기 등) ──────────────────────
+def normalize_region(r: str) -> str:
+    if not r:
+        return ""
+    if "서울" in r: return "서울"
+    if "부산" in r: return "부산"
+    if "대구" in r: return "대구"
+    if "인천" in r: return "인천"
+    if "광주" in r: return "광주"
+    if "대전" in r: return "대전"
+    if "울산" in r: return "울산"
+    if "세종" in r: return "세종"
+    if "경기" in r: return "경기"
+    if "강원" in r: return "강원"
+    if "충북" in r or "충청북" in r: return "충북"
+    if "충남" in r or "충청남" in r: return "충남"
+    if "전북" in r or "전라북" in r: return "전북"
+    if "전남" in r or "전라남" in r: return "전남"
+    if "경북" in r or "경상북" in r: return "경북"
+    if "경남" in r or "경상남" in r: return "경남"
+    if "제주" in r: return "제주"
+    return r
+
+
+# ── 환경변수 체크 ──────────────────────────────────────────────────────────────
+
 def validate_env():
     missing = []
     if not SUPABASE_SERVICE_KEY:
@@ -125,7 +151,7 @@ def fetch_local_welfare_list(page: int, num_rows: int = 100) -> list:
                 "target_info": g("tgtrDscr") or g("target"),
                 "benefit_info": g("givBnfScpCn") or g("benefit"),
                 "apply_place": g("aplyMtd") or g("applyMethod"),
-                "region": g("ctpvNm") or "",
+                "region": normalize_region(g("ctpvNm") or ""),
                 "source": "local",
             })
 
@@ -450,10 +476,12 @@ EXTRACTION_RULES = """
        ✅ "서울시에 주민등록된 어르신" → 서울
        ✅ "경기도 거주 65세 이상" → 경기
        ✅ "○○도 노인 전용 서비스" → 해당 시도
-    3. ⚠ 신청 방법·신청처·문의처에만 지역명이 등장하면 반드시 "전국"
-       ❌ "서울 주민센터에 방문 신청" → 전국 (신청 장소일 뿐)
-       ❌ "부산광역시청 복지과 문의" → 전국 (문의처일 뿐)
-       ❌ "가까운 ○○구청에 신청" → 전국 (신청 방법일 뿐)
+    3. 신청처·문의처에 특정 시도명이 등장하는 경우 → 해당 시도로 분류
+       (특정 지역 기관에서만 신청 가능하면 사실상 그 지역 서비스)
+       ✅ "서울 주민센터에 방문 신청" → 서울
+       ✅ "부산광역시청 복지과 문의" → 부산
+       ❌ "가까운 주민센터에 신청" → 전국 (특정 시도 없음)
+       ❌ "복지로(bokjiro.go.kr) 온라인 신청" → 전국 (전국 공통)
     4. 전국 단위 서비스이거나 판단 불가 → "전국"
     ※ 시도명 형식: "서울" "경기" "부산" 등 짧은 형태 사용
 - confidence: 추출 확신도 0.0~1.0
@@ -560,7 +588,7 @@ def run_phase2(supabase) -> int:
                     "requires_veteran": criteria.get("requires_veteran", False),
                     "service_tags": criteria.get("service_tags", []),
                     "target_age_group": criteria.get("target_age_group", "unknown"),
-                    "region": criteria.get("region") or svc.get("region") or "전국",
+                    "region": normalize_region(criteria.get("region") or svc.get("region") or "전국"),
                     "ai_criteria": criteria,
                     "filter_confidence": criteria.get("confidence", 0.0),
                     "filter_updated_at": datetime.now(timezone.utc).isoformat(),
@@ -591,9 +619,9 @@ def main(phase=None):
     print("=" * 60)
 
     if phase == "0":
-        run_phase0(supabase)          # 목록 수집만
+        run_phase0(supabase)
     elif phase == "0_detail":
-        run_phase0_detail(supabase)   # 상세 수집만 (100건)
+        run_phase0_detail(supabase)
     elif phase == "1":
         run_phase1(supabase)
     elif phase == "2":

@@ -265,18 +265,28 @@ def fetch_local_welfare_web(session: requests.Session, serv_id: str) -> dict | N
     )
     resp.raise_for_status()
 
-    # initParameter({...}); 안의 JSON 추출
-    m = re.search(
-        r'initParameter\((.+?)\);\s*cpr\.core\.Platform\.INSTANCE\.lookup',
-        resp.text, re.DOTALL
-    )
-    if not m:
+    # initParameter({...}) 안의 JSON 추출 - raw_decode로 중첩 JSON 정확히 파싱
+    # (비탐욕 정규식은 JSON 내부 `)` 문자를 잘못 종단점으로 인식하는 버그가 있음)
+    decoder = json.JSONDecoder()
+    outer = None
+    for m in re.finditer(r'initParameter\s*\(\s*(\{)', resp.text):
+        start = m.start(1)
+        try:
+            obj, _ = decoder.raw_decode(resp.text, start)
+            if 'initValue' in obj:
+                outer = obj
+                break
+        except json.JSONDecodeError:
+            continue
+
+    if not outer:
         return None
 
-    outer = json.loads(m.group(1))
     init_val = outer.get("initValue", {})
-    dm = json.loads(init_val.get("dmWlfareInfo", "{}"))
-    dtl = json.loads(init_val.get("dsWlfareInfoDtl", "[]"))
+    dm_raw = init_val.get("dmWlfareInfo", "{}")
+    dtl_raw = init_val.get("dsWlfareInfoDtl", "[]")
+    dm = json.loads(dm_raw) if isinstance(dm_raw, str) else dm_raw
+    dtl = json.loads(dtl_raw) if isinstance(dtl_raw, str) else dtl_raw
 
     phones = [d["wlfareInfoReldCn"] for d in dtl if d.get("wlfareInfoDtlCd") == "010" and d.get("wlfareInfoReldCn")]
 
@@ -295,7 +305,7 @@ def run_phase0_detail(supabase) -> int:
     # 미처리 항목 전체 조회 (웹 스크래핑은 API 한도 없음)
     result = (
         supabase.table("welfare_services")
-        .select("id, name, online_url")
+        .select("id, name, online_url, description")
         .eq("source", "local")
         .is_("detail_fetched_at", "null")
         .limit(10000)
@@ -335,7 +345,7 @@ def run_phase0_detail(supabase) -> int:
                 "target_info": data["target_info"],
                 "benefit_info": data["benefit_info"],
                 "apply_place": data["apply_place"],
-                "detail_content": data["detail_content"],
+                "detail_content": data["detail_content"] or svc.get("description", ""),
                 "inq_place": data["inq_place"],
                 "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
             }

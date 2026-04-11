@@ -259,6 +259,18 @@ def strip_html(text: str) -> str:
 
 def parse_welfare_html(html: str) -> dict | None:
     """HTML에서 initParameter의 dmWlfareInfo 파싱"""
+    # 알려진 필드 → 한글 레이블 매핑
+    FIELD_LABELS = {
+        "wlfareInfoOutlCn": "서비스 개요",
+        "wlfareSprtTrgtCn": "지원 대상",
+        "slctCritCn": "선정 기준",
+        "wlfareSprtBnftCn": "지원 혜택",
+        "aplyMtdDc": "신청 방법",
+        "servDgstNm": "서비스 요약",
+        "wlfareTrgtNm": "대상 유형",
+        "mngtMrofCd": "주관 부서",
+        "wfareInfoPrmiDt": "시행일",
+    }
     decoder = json.JSONDecoder()
     for m in re.finditer(r'initParameter\s*\(\s*(\{)', html):
         start = m.start(1)
@@ -273,6 +285,7 @@ def parse_welfare_html(html: str) -> dict | None:
             dtl = json.loads(dtl_raw) if isinstance(dtl_raw, str) else dtl_raw
             phones = [d["wlfareInfoReldCn"] for d in dtl
                       if d.get("wlfareInfoDtlCd") == "010" and d.get("wlfareInfoReldCn")]
+
             # detail_content = 개요 + 선정기준 합산 (AI 분류에 활용)
             outline = strip_html(dm.get("wlfareInfoOutlCn") or "")
             criteria = strip_html(dm.get("slctCritCn") or "")
@@ -280,12 +293,28 @@ def parse_welfare_html(html: str) -> dict | None:
                 detail = f"{outline}\n\n[선정기준]\n{criteria}"
             else:
                 detail = outline or criteria
+
+            # raw_content = 모든 텍스트 필드 레이블과 함께 전체 저장
+            raw_parts = []
+            for key, val in dm.items():
+                if not isinstance(val, str) or not val.strip():
+                    continue
+                cleaned = strip_html(val.strip())
+                if not cleaned:
+                    continue
+                label = FIELD_LABELS.get(key, key)
+                raw_parts.append(f"[{label}]\n{cleaned}")
+            if phones:
+                raw_parts.append(f"[문의처]\n{', '.join(phones)}")
+            raw_content = "\n\n".join(raw_parts)
+
             return {
                 "target_info": strip_html(dm.get("wlfareSprtTrgtCn") or ""),
                 "benefit_info": strip_html(dm.get("wlfareSprtBnftCn") or ""),
                 "apply_place": strip_html(dm.get("aplyMtdDc") or ""),
                 "detail_content": detail,
                 "inq_place": ", ".join(phones),
+                "raw_content": raw_content,
             }
         except (json.JSONDecodeError, Exception):
             continue
@@ -418,6 +447,7 @@ def run_phase0_detail(supabase) -> int:
                         "apply_place": data["apply_place"],
                         "detail_content": data["detail_content"] or svc.get("description", ""),
                         "inq_place": data["inq_place"],
+                        "raw_content": data["raw_content"],
                         "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
                     }
                     supabase.table("welfare_services").update(update).eq("id", svc["id"]).execute()

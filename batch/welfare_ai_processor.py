@@ -281,6 +281,14 @@ def fetch_local_welfare_web(session: requests.Session, serv_id: str) -> dict | N
             continue
 
     if not outer:
+        # DEBUG: 첫 실패 시 응답 상태 및 내용 일부 출력
+        if not getattr(fetch_local_welfare_web, '_fail_debug_done', False):
+            fetch_local_welfare_web._fail_debug_done = True
+            matches = re.findall(r'initParameter\s*\(', resp.text)
+            print(f"\n    [DEBUG] serv_id={serv_id}", flush=True)
+            print(f"    [DEBUG] status={resp.status_code}, url={resp.url}", flush=True)
+            print(f"    [DEBUG] initParameter 개수={len(matches)}", flush=True)
+            print(f"    [DEBUG] 응답 앞 300자: {resp.text[:300]!r}", flush=True)
         return None
 
     init_val = outer.get("initValue", {})

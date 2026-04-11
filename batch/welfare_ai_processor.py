@@ -265,7 +265,8 @@ def fetch_local_welfare_playwright(page, serv_id: str) -> dict | None:
             wait_until="networkidle",
             timeout=30000,
         )
-    except Exception:
+    except Exception as e:
+        print(f"\n    [DEBUG] goto 실패: {e}", flush=True)
         return None
 
     data = page.evaluate("""
@@ -299,6 +300,7 @@ def fetch_local_welfare_playwright(page, serv_id: str) -> dict | None:
     """)
 
     if not data or 'error' in data:
+        print(f"\n    [DEBUG] evaluate 결과: {data}", flush=True)
         return None
 
     return {

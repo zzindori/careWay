@@ -239,7 +239,14 @@ def run_phase0(supabase) -> int:
 # PHASE 0 DETAIL: 지자체복지서비스 상세 수집 → DB 저장 (복지로 웹 스크래핑)
 # ════════════════════════════════════════════════════════════════════════════════
 
-WEB_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+WEB_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Referer": "https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52005M.do",
+    "Connection": "keep-alive",
+}
 
 def strip_html(text: str) -> str:
     """HTML 태그 제거, <br/> → 줄바꿈"""
@@ -249,12 +256,11 @@ def strip_html(text: str) -> str:
     text = re.sub(r'<[^>]+>', '', text)
     return text.strip()
 
-def fetch_local_welfare_web(serv_id: str) -> dict | None:
+def fetch_local_welfare_web(session: requests.Session, serv_id: str) -> dict | None:
     """복지로 웹에서 지자체복지서비스 상세 스크래핑 (HTML 내 JSON 파싱)"""
-    resp = requests.get(
+    resp = session.get(
         BOKJIRO_WEB_URL,
         params={"wlfareInfoId": serv_id, "wlfareInfoReldBztpCd": "02"},
-        headers=WEB_HEADERS,
         timeout=15,
     )
     resp.raise_for_status()
@@ -304,6 +310,9 @@ def run_phase0_detail(supabase) -> int:
     print(f"  처리 대상: {len(all_services)}개")
     ok = fail = 0
 
+    session = requests.Session()
+    session.headers.update(WEB_HEADERS)
+
     for i, svc in enumerate(all_services):
         serv_id = svc.get("online_url")
         name_short = (svc.get("name") or "")[:20]
@@ -315,7 +324,7 @@ def run_phase0_detail(supabase) -> int:
         print(f"  [{i+1}/{len(all_services)}] {name_short}... ", end="", flush=True)
 
         try:
-            data = fetch_local_welfare_web(serv_id)
+            data = fetch_local_welfare_web(session, serv_id)
             if not data:
                 print("⚠ 파싱 실패")
                 fail += 1

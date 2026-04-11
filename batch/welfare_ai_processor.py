@@ -67,6 +67,7 @@ BOKJIRO_WEB_URL = "https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT
 
 MODEL = "gemini-2.0-flash"
 API_REQUEST_DELAY = 1.2    # 복지로 API rate limit 방지 (개발계정 100 RPM → 최소 0.6초, 여유분 포함)
+WEB_SCRAPE_DELAY = 0.5     # 복지로 웹 스크래핑 딜레이 (API 한도 없음, 서버 부하 방지 목적)
 GEMINI_DELAY = 4.5         # Gemini 무료 티어: 15 RPM → 4초 간격
 
 # ── 환경변수 체크 ──────────────────────────────────────────────────────────────
@@ -285,13 +286,13 @@ def fetch_local_welfare_web(serv_id: str) -> dict | None:
 def run_phase0_detail(supabase) -> int:
     print("\n━━━ PHASE 0 DETAIL: 지자체복지서비스 상세 수집 ━━━")
 
-    # 미처리 항목 최대 1000개 조회 (다음 실행 때 나머지 이어서 처리)
+    # 미처리 항목 전체 조회 (웹 스크래핑은 API 한도 없음)
     result = (
         supabase.table("welfare_services")
         .select("id, name, online_url")
         .eq("source", "local")
         .is_("detail_fetched_at", "null")
-        .limit(1000)
+        .limit(10000)
         .execute()
     )
     all_services = result.data or []
@@ -318,7 +319,7 @@ def run_phase0_detail(supabase) -> int:
             if not data:
                 print("⚠ 파싱 실패")
                 fail += 1
-                time.sleep(API_REQUEST_DELAY)
+                time.sleep(WEB_SCRAPE_DELAY)
                 continue
 
             update = {
@@ -337,7 +338,7 @@ def run_phase0_detail(supabase) -> int:
             print(f"❌ {e}")
             fail += 1
 
-        time.sleep(API_REQUEST_DELAY)
+        time.sleep(WEB_SCRAPE_DELAY)
 
     print(f"\n  Phase 0 Detail 완료: 성공={ok}, 오류={fail}")
     return ok

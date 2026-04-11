@@ -273,11 +273,18 @@ def parse_welfare_html(html: str) -> dict | None:
             dtl = json.loads(dtl_raw) if isinstance(dtl_raw, str) else dtl_raw
             phones = [d["wlfareInfoReldCn"] for d in dtl
                       if d.get("wlfareInfoDtlCd") == "010" and d.get("wlfareInfoReldCn")]
+            # detail_content = 개요 + 선정기준 합산 (AI 분류에 활용)
+            outline = strip_html(dm.get("wlfareInfoOutlCn") or "")
+            criteria = strip_html(dm.get("slctCritCn") or "")
+            if outline and criteria:
+                detail = f"{outline}\n\n[선정기준]\n{criteria}"
+            else:
+                detail = outline or criteria
             return {
                 "target_info": strip_html(dm.get("wlfareSprtTrgtCn") or ""),
                 "benefit_info": strip_html(dm.get("wlfareSprtBnftCn") or ""),
                 "apply_place": strip_html(dm.get("aplyMtdDc") or ""),
-                "detail_content": strip_html(dm.get("wlfareInfoOutlCn") or ""),
+                "detail_content": detail,
                 "inq_place": ", ".join(phones),
             }
         except (json.JSONDecodeError, Exception):

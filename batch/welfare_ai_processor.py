@@ -44,6 +44,7 @@ import json
 import time
 import re
 import requests
+from curl_cffi import requests as cf_requests  # Chrome TLS 핑거프린트로 위장
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
@@ -333,8 +334,7 @@ def run_phase0_detail(supabase) -> int:
     ok = fail = consecutive_fail = 0
     MAX_CONSECUTIVE_FAIL = 10
 
-    session = requests.Session()
-    session.headers.update(WEB_HEADERS)
+    session = cf_requests.Session(impersonate="chrome124")
 
     # 세션 워밍업 - 첫 요청 ConnectionReset 방지
     try:

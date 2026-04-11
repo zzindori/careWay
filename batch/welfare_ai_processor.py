@@ -344,7 +344,7 @@ def run_phase0_detail(supabase) -> int:
 
     print(f"  처리 대상: {len(all_services)}개")
     ok = fail = consecutive_fail = 0
-    MAX_CONSECUTIVE_FAIL = 10
+    MAX_CONSECUTIVE_FAIL = 5
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])

@@ -277,6 +277,10 @@ def fetch_local_welfare_playwright(page, serv_id: str) -> dict | None:
         )
     except Exception as e:
         print(f"\n    [DEBUG] goto 실패: {e}", flush=True)
+        try:
+            page.goto("about:blank", wait_until="load", timeout=5000)
+        except Exception:
+            pass
         return None
 
     data = page.evaluate("""

@@ -322,7 +322,8 @@ def run_phase0_detail(supabase) -> int:
         return 0
 
     print(f"  처리 대상: {len(all_services)}개")
-    ok = fail = 0
+    ok = fail = consecutive_fail = 0
+    MAX_CONSECUTIVE_FAIL = 10
 
     session = requests.Session()
     session.headers.update(WEB_HEADERS)
@@ -349,7 +350,11 @@ def run_phase0_detail(supabase) -> int:
             if not data:
                 print("⚠ 파싱 실패")
                 fail += 1
+                consecutive_fail += 1
                 time.sleep(WEB_SCRAPE_DELAY)
+                if consecutive_fail >= MAX_CONSECUTIVE_FAIL:
+                    print(f"\n  연속 {MAX_CONSECUTIVE_FAIL}회 실패 → 조기 종료")
+                    break
                 continue
 
             update = {
@@ -366,10 +371,15 @@ def run_phase0_detail(supabase) -> int:
             d = len(update["detail_content"])
             print(f"✓ (대상:{t}자 혜택:{b}자 내용:{d}자)")
             ok += 1
+            consecutive_fail = 0
 
         except Exception as e:
             print(f"❌ {e}")
             fail += 1
+            consecutive_fail += 1
+            if consecutive_fail >= MAX_CONSECUTIVE_FAIL:
+                print(f"\n  연속 {MAX_CONSECUTIVE_FAIL}회 실패 → 조기 종료")
+                break
 
         time.sleep(WEB_SCRAPE_DELAY)
 

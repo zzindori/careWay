@@ -288,14 +288,15 @@ def fetch_local_welfare_web(session: requests.Session, serv_id: str) -> dict | N
     dm = json.loads(dm_raw) if isinstance(dm_raw, str) else dm_raw
     dtl = json.loads(dtl_raw) if isinstance(dtl_raw, str) else dtl_raw
 
+    # TODO: 확인 후 제거 - initValue 키 목록 출력 (첫 1회만)
+    if not dm and not getattr(fetch_local_welfare_web, '_debug_done', False):
+        fetch_local_welfare_web._debug_done = True
+        print(f"\n    [DEBUG] initValue keys: {list(init_val.keys())}", flush=True)
+
     phones = [d["wlfareInfoReldCn"] for d in dtl if d.get("wlfareInfoDtlCd") == "010" and d.get("wlfareInfoReldCn")]
 
     target = strip_html(dm.get("wlfareSprtTrgtCn") or "")
     benefit = strip_html(dm.get("wlfareSprtBnftCn") or "")
-
-    # TODO: 필드명 확인 후 제거 - dm 키 목록 출력 (target/benefit 모두 비어있을 때만)
-    if not target and not benefit and dm:
-        print(f"\n    [DEBUG] dm keys: {list(dm.keys())[:10]}", flush=True)
 
     return {
         "target_info": target,

@@ -262,8 +262,18 @@ def fetch_local_welfare_playwright(page, serv_id: str) -> dict | None:
     try:
         page.goto(
             f"{BOKJIRO_WEB_URL}?wlfareInfoId={serv_id}&wlfareInfoReldBztpCd=02",
-            wait_until="networkidle",
+            wait_until="load",
             timeout=30000,
+        )
+        # AJAX로 복지 데이터 로드될 때까지 대기 (networkidle 대신 - GA 요청으로 타임아웃)
+        page.wait_for_function(
+            """() => {
+                try {
+                    const app = cpr.core.Platform.INSTANCE.getActiveApplication();
+                    return app && !!app.lookup('dmWlfareInfo');
+                } catch(e) { return false; }
+            }""",
+            timeout=15000,
         )
     except Exception as e:
         print(f"\n    [DEBUG] goto 실패: {e}", flush=True)

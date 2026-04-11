@@ -779,8 +779,7 @@ _REGION_PATTERNS = [
 _COMPILED = [(re.compile(p), r) for p, r in _REGION_PATTERNS]
 
 
-def infer_region(name: str, target_info: str = "") -> str | None:
-    text = f"{name} {target_info}"
+def infer_region(text: str) -> str | None:
     for pattern, region in _COMPILED:
         if pattern.search(text):
             return region
@@ -791,7 +790,7 @@ def run_fix_region(supabase) -> int:
     print("\n━━━ FIX REGION: 지자체 서비스 지역 후처리 ━━━")
     result = (
         supabase.table("welfare_services")
-        .select("id, name, target_info, region")
+        .select("id, name, target_info, description, region")
         .eq("source", "local")
         .eq("region", "전국")
         .execute()
@@ -799,9 +798,21 @@ def run_fix_region(supabase) -> int:
     services = result.data or []
     print(f"  대상: {len(services)}개 (region=전국인 지자체 서비스)")
 
+    # 샘플 확인
+    print("  [샘플] 이름 / target_info 앞 30자:")
+    for svc in services[:5]:
+        ti = (svc.get("target_info") or "")[:30]
+        dc = (svc.get("description") or "")[:30]
+        print(f"    - {svc['name'][:25]} | target:{ti!r} | desc:{dc!r}")
+
     updated = skipped = 0
     for svc in services:
-        inferred = infer_region(svc.get("name", ""), svc.get("target_info", ""))
+        text = " ".join(filter(None, [
+            svc.get("name", ""),
+            svc.get("target_info", ""),
+            svc.get("description", ""),
+        ]))
+        inferred = infer_region(text)
         if inferred:
             supabase.table("welfare_services").update({"region": inferred}).eq("id", svc["id"]).execute()
             updated += 1

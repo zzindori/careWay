@@ -16,6 +16,7 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
   WelfareService? _service;
   bool _isLoading = true;
   String? _error;
+  bool _detailExpanded = false;
 
   @override
   void initState() {
@@ -73,6 +74,33 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
           if (service.description.isNotEmpty)
             Text(service.description,
                 style: const TextStyle(fontSize: 15, color: AppTheme.textSecondary, height: 1.6)),
+
+          // ── AI 요약 ──────────────────────────────────
+          if (service.aiSummary.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8F5E9),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFA5D6A7)),
+              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  const Icon(Icons.auto_awesome, size: 15, color: Color(0xFF388E3C)),
+                  const SizedBox(width: 6),
+                  const Text('AI 요약',
+                      style: TextStyle(
+                          fontSize: 12, color: Color(0xFF388E3C), fontWeight: FontWeight.w700)),
+                ]),
+                const SizedBox(height: 8),
+                Text(service.aiSummary,
+                    style: const TextStyle(
+                        fontSize: 14, color: Color(0xFF1B5E20), height: 1.65)),
+              ]),
+            ),
+          ],
 
           // ── 해당 사유 ──────────────────────────────────
           if (matchReasons.isNotEmpty) ...[
@@ -132,14 +160,58 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
 
           // ── 상세 안내 ──────────────────────────────────
           const SizedBox(height: 12),
-          _section(
-            title: '상세 안내',
-            icon: Icons.article_outlined,
-            child: service.detailContent.isNotEmpty
-                ? Text(service.detailContent,
-                    style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary, height: 1.6))
-                : _pendingText(),
-          ),
+          if (service.aiSummary.isNotEmpty && service.detailContent.isNotEmpty)
+            // AI 요약 있을 때: 원문은 접기/펼치기
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.divider),
+              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                InkWell(
+                  onTap: () => setState(() => _detailExpanded = !_detailExpanded),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(children: [
+                      const Icon(Icons.article_outlined, size: 16, color: AppTheme.primary),
+                      const SizedBox(width: 6),
+                      const Expanded(
+                        child: Text('원문 안내',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.textSecondary,
+                                fontWeight: FontWeight.w600)),
+                      ),
+                      Icon(
+                        _detailExpanded ? Icons.expand_less : Icons.expand_more,
+                        size: 18,
+                        color: AppTheme.textSecondary,
+                      ),
+                    ]),
+                  ),
+                ),
+                if (_detailExpanded)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: Text(service.detailContent,
+                        style: const TextStyle(
+                            fontSize: 14, color: AppTheme.textPrimary, height: 1.6)),
+                  ),
+              ]),
+            )
+          else
+            _section(
+              title: '상세 안내',
+              icon: Icons.article_outlined,
+              child: service.detailContent.isNotEmpty
+                  ? Text(service.detailContent,
+                      style: const TextStyle(
+                          fontSize: 14, color: AppTheme.textPrimary, height: 1.6))
+                  : _pendingText(),
+            ),
 
           // ── 문의처 ─────────────────────────────────────
           const SizedBox(height: 12),

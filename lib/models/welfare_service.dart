@@ -33,6 +33,7 @@ class WelfareService {
   final List<Map<String, String>> applmetList;
   final String inqPlace;
   final String detailContent;
+  final String aiSummary;   // Gemini AI 요약
 
   const WelfareService({
     required this.id,
@@ -61,6 +62,7 @@ class WelfareService {
     this.applmetList = const [],
     this.inqPlace = '',
     this.detailContent = '',
+    this.aiSummary = '',
   });
 
   String get categoryLabel {
@@ -316,6 +318,7 @@ class WelfareService {
           [],
       inqPlace: json['inq_place'] as String? ?? '',
       detailContent: json['detail_content'] as String? ?? '',
+      aiSummary: json['ai_summary'] as String? ?? '',
     );
   }
 }

@@ -485,6 +485,10 @@ EXTRACTION_RULES = """
     4. 전국 단위 서비스이거나 판단 불가 → "전국"
     ※ 시도명 형식: "서울" "경기" "부산" 등 짧은 형태 사용
 - confidence: 추출 확신도 0.0~1.0
+- summary: 이 서비스가 누구를 위한 것이고 어떤 혜택을 주는지를 중학생도 이해할 수 있는 말로 2~3문장으로 요약
+    예: "소득이 적은 65세 이상 어르신께 매달 일정 금액을 드리는 제도예요. 기초생활수급자나 차상위계층 어르신이라면 신청해 볼 만해요."
+    예: "65세 이상 어르신의 집을 고쳐주는 서비스예요. 방수·단열·난방 등 꼭 필요한 부분을 무료 또는 저가로 수리해 드려요."
+    ※ 존댓말로 작성, 전문용어 대신 쉬운 표현 사용
 """
 
 
@@ -516,7 +520,8 @@ def make_prompt(svc: dict) -> str:
   "target_age_group": "unknown",
   "service_tags": [],
   "region": "{region_hint if region_hint else '전국'}",
-  "confidence": 0.8
+  "confidence": 0.8,
+  "summary": ""
 }}
 
 {EXTRACTION_RULES}"""
@@ -589,6 +594,7 @@ def run_phase2(supabase) -> int:
                     "service_tags": criteria.get("service_tags", []),
                     "target_age_group": criteria.get("target_age_group", "unknown"),
                     "region": normalize_region(criteria.get("region") or svc.get("region") or "전국"),
+                    "ai_summary": criteria.get("summary", ""),
                     "ai_criteria": criteria,
                     "filter_confidence": criteria.get("confidence", 0.0),
                     "filter_updated_at": datetime.now(timezone.utc).isoformat(),

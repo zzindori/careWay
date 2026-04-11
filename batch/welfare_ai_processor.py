@@ -341,7 +341,7 @@ def run_phase0_detail(supabase) -> int:
 
     print(f"  처리 대상: {len(all_services)}개")
     ok = fail = consecutive_fail = 0
-    MAX_CONSECUTIVE_FAIL = 5
+    MAX_CONSECUTIVE_FAIL = 20
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
@@ -389,6 +389,7 @@ def run_phase0_detail(supabase) -> int:
                     if consecutive_fail >= MAX_CONSECUTIVE_FAIL:
                         print(f"\n  연속 {MAX_CONSECUTIVE_FAIL}회 실패 → 조기 종료")
                         break
+                    time.sleep(WEB_SCRAPE_DELAY * 3)  # 실패 시 더 기다림
                     continue
 
                 update = {

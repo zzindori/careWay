@@ -265,6 +265,7 @@ def parse_welfare_html(html: str) -> dict | None:
         "slctCritCn": "선정 기준",
         "wlfareSprtBnftCn": "지원 혜택",
         "aplyMtdDc": "신청 방법",
+        "rqutPdFrmCn": "신청 서류",
         "servDgstNm": "서비스 요약",
         "wlfareTrgtNm": "대상 유형",
         "mngtMrofCd": "주관 부서",

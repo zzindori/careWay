@@ -22,6 +22,7 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
   bool _isLoading = true;
   String? _error;
   bool _detailExpanded = false;
+  List<Map<String, String>> _providers = [];
 
   @override
   void initState() {
@@ -38,6 +39,33 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
       _isLoading = false;
       if (service == null) _error = '서비스를 찾을 수 없습니다.';
     });
+    if (service != null) _loadProviders(service);
+  }
+
+  Future<void> _loadProviders(WelfareService service) async {
+    if (kSocialServiceApiKey.isEmpty) return;
+    try {
+      final regionParam = Uri.encodeComponent(service.region.isNotEmpty ? service.region : '');
+      final uri = Uri.parse(
+        'https://api.socialservice.or.kr:444/api/service/provider/providerList'
+        '?sigunguNm=$regionParam&searchIdx=0&pageSize=10'
+        '&serviceKey=${Uri.encodeComponent(kSocialServiceApiKey)}',
+      );
+      final res = await http.get(uri).timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final list = (data['data'] as List?)
+            ?.map((p) => {
+                  'name': (p['provNm'] as String?) ?? '',
+                  'addr': (p['addr'] as String?) ?? '',
+                  'phone': (p['telNo'] as String?) ?? '',
+                })
+            .where((p) => p['name']!.isNotEmpty)
+            .cast<Map<String, String>>()
+            .toList();
+        if (mounted && list != null) setState(() => _providers = list);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -168,6 +196,22 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
                     : _pendingText(),
           ),
 
+          // ── 신청 서류 ──────────────────────────────────
+          Builder(builder: (_) {
+            final docs = _extractSection(service.rawContent, ['신청 서류', 'rqutPdFrmCn']);
+            if (docs.isEmpty) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: _section(
+                title: '신청 서류',
+                icon: Icons.folder_outlined,
+                iconColor: const Color(0xFF4527A0),
+                child: Text(docs, style: const TextStyle(
+                    fontSize: 14, color: AppTheme.textPrimary, height: 1.6)),
+              ),
+            );
+          }),
+
           // ── 원문 안내 ──────────────────────────────────
           const SizedBox(height: 12),
           _buildRawContentCard(service),
@@ -181,6 +225,12 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
                 ? _buildPhoneContent(service.inqPlace, const Color(0xFF37474F))
                 : _pendingText(),
           ),
+
+          // ── 우리 지역 제공기관 ──────────────────────────
+          if (_providers.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _buildProvidersSection(),
+          ],
 
           const SizedBox(height: 24),
           OutlinedButton.icon(
@@ -200,6 +250,86 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
     );
   }
 
+  // ─── 우리 지역 제공기관 ────────────────────────────────────────
+
+  Widget _buildProvidersSection() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.location_on_outlined, size: 16, color: AppTheme.primary),
+          const SizedBox(width: 6),
+          const Text('우리 지역 제공기관',
+              style: TextStyle(
+                  fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w600)),
+        ]),
+        const SizedBox(height: 12),
+        ..._providers.map(_buildProviderCard),
+      ]),
+    );
+  }
+
+  Widget _buildProviderCard(Map<String, String> p) {
+    final name = p['name'] ?? '';
+    final addr = p['addr'] ?? '';
+    final phone = p['phone'] ?? '';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: Row(children: [
+          const Icon(Icons.business_outlined, size: 18, color: AppTheme.textSecondary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(name,
+                  style: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
+              if (addr.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(addr,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+              ],
+            ]),
+          ),
+          if (phone.isNotEmpty)
+            GestureDetector(
+              onTap: () => _confirmCall(phone),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.phone, size: 14, color: AppTheme.primary),
+                  const SizedBox(width: 4),
+                  Text('연결',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.primary,
+                          fontWeight: FontWeight.w600)),
+                ]),
+              ),
+            ),
+        ]),
+      ),
+    );
+  }
+
   // ─── 원문 안내 카드 ─────────────────────────────────────────
 
   static const _sectionIcons = <String, IconData>{
@@ -208,6 +338,7 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
     '선정 기준': Icons.rule_outlined,
     '지원 혜택': Icons.card_giftcard_outlined,
     '신청 방법': Icons.how_to_reg_outlined,
+    '신청 서류': Icons.folder_outlined,
     '문의처': Icons.phone_outlined,
     '담당 부서': Icons.business_outlined,
     '소재지': Icons.location_on_outlined,
@@ -219,6 +350,7 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
     '선정 기준': Color(0xFF6A1B9A),
     '지원 혜택': Color(0xFFE65100),
     '신청 방법': Color(0xFF00695C),
+    '신청 서류': Color(0xFF4527A0),
     '문의처': Color(0xFF37474F),
     '담당 부서': Color(0xFF455A64),
     '소재지': Color(0xFF00695C),
@@ -231,11 +363,26 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
     '선정 기준': '선정 기준',
     '지원 혜택': '지원 혜택',
     '신청 방법': '신청 방법',
+    '신청 서류': '신청 서류',
     '문의처': '문의처',
+    'rqutPdFrmCn': '신청 서류',       // 구버전 배치 데이터 호환
     'bizChrDeptNm': '담당 부서',
     'addr': '소재지',
     'wlfareSprtTrgtSlcrCn': '선정 기준',  // 선정 기준 없을 때 폴백
   };
+
+  /// rawContent에서 특정 레이블의 내용을 추출 (여러 레이블 중 첫 번째 매칭)
+  String _extractSection(String raw, List<String> labels) {
+    final pattern = RegExp(r'\[([^\]]+)\]\n([\s\S]*?)(?=\n\n\[|$)');
+    for (final m in pattern.allMatches(raw)) {
+      final label = m.group(1)!.trim();
+      if (labels.contains(label)) {
+        final content = m.group(2)!.trim();
+        if (content.isNotEmpty) return content;
+      }
+    }
+    return '';
+  }
 
   List<MapEntry<String, String>> _parseRawSections(String raw) {
     final sections = <MapEntry<String, String>>[];

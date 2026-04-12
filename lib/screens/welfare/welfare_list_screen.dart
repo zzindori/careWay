@@ -1,9 +1,13 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../providers/profile_provider.dart';
 import '../../models/welfare_service.dart';
 import '../../config/app_theme.dart';
+import '../../config/secrets.dart';
 import '../../widgets/welfare_card.dart';
 
 class WelfareListScreen extends StatefulWidget {
@@ -16,6 +20,17 @@ class WelfareListScreen extends StatefulWidget {
 class _WelfareListScreenState extends State<WelfareListScreen> {
   String _selectedCategory = 'all';
   bool _isRefreshing = false;
+  List<Map<String, String>> _localProviders = [];
+  bool _providersLoading = false;
+
+  // 카테고리 → socialservice 서비스 유형 코드 매핑 (API 활성화 후 실제 코드로 교체)
+  static const _categoryServiceType = <String, String>{
+    'care': 'BA',       // 노인돌봄
+    'living': 'BC',     // 가사지원
+    'medical': 'BD',    // 방문건강
+    'housing': 'BE',    // 주거편의
+  };
+
 
   final _categories = [
     ('medical', '의료'),
@@ -23,7 +38,7 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
     ('living', '생활지원'),
     ('housing', '주거'),
     ('finance', '경제'),
-    ('mobility', '이동'),
+    ('mobility', '교통'),
   ];
 
   @override
@@ -59,6 +74,37 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
   List<WelfareService> _filter(List<WelfareService> list) {
     if (_selectedCategory == 'all') return list;
     return list.where((s) => s.category == _selectedCategory).toList();
+  }
+
+  Future<void> _loadLocalProviders(String category, String region) async {
+    if (kSocialServiceApiKey.isEmpty) return;
+    final serviceType = _categoryServiceType[category];
+    if (serviceType == null) return; // 매핑 없는 카테고리는 스킵
+    setState(() { _localProviders = []; _providersLoading = true; });
+    try {
+      final uri = Uri.parse(
+        'https://api.socialservice.or.kr:444/api/service/provider/providerList'
+        '?serviceType=$serviceType'
+        '&sigunguNm=${Uri.encodeComponent(region)}'
+        '&searchIdx=0&pageSize=20'
+        '&serviceKey=${Uri.encodeComponent(kSocialServiceApiKey)}',
+      );
+      final res = await http.get(uri).timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final list = (data['data'] as List? ?? [])
+            .map((p) => {
+                  'name': (p['provNm'] as String?) ?? '',
+                  'addr': (p['addr'] as String?) ?? '',
+                  'phone': (p['telNo'] as String?) ?? '',
+                })
+            .where((p) => p['name']!.isNotEmpty)
+            .cast<Map<String, String>>()
+            .toList();
+        if (mounted) setState(() => _localProviders = list);
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _providersLoading = false);
   }
 
   @override
@@ -99,7 +145,17 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
 
             final tier1 = _filter(provider.tier1Services);
             final tier2 = _filter(provider.tier2Services);
-            final tier3 = _filter(provider.tier3Services);
+            final tier3Ids = provider.tier3Services.map((s) => s.id).toSet();
+            final matchedIds = {
+              ...provider.tier1Services.map((s) => s.id),
+              ...provider.tier2Services.map((s) => s.id),
+              ...tier3Ids,
+            };
+            // tier3 매칭 + tier0 숨김 서비스 모두 포함
+            final tier3 = [
+              ..._filter(provider.tier3Services),
+              ..._filter(provider.allServices).where((s) => !matchedIds.contains(s.id)),
+            ];
 
             return Column(
               children: [
@@ -176,6 +232,39 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
                   ),
                 ],
 
+                // ── 우리 지역 서비스 기관 ──
+                if (_selectedCategory != 'all' && (_providersLoading || _localProviders.isNotEmpty)) ...[
+                  SliverToBoxAdapter(
+                    child: _buildTierHeader(
+                      '우리 지역 서비스 기관',
+                      _providersLoading ? '' : '${_localProviders.length}개',
+                      const Color(0xFF00796B),
+                      Icons.location_on_outlined,
+                      '지역 내 실제 서비스 제공 기관',
+                    ),
+                  ),
+                  if (_providersLoading)
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                      ),
+                    )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      sliver: SliverList(
+                        delegate: SliverChildBuilderDelegate(
+                          (_, i) => Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: _buildProviderCard(_localProviders[i]),
+                          ),
+                          childCount: _localProviders.length,
+                        ),
+                      ),
+                    ),
+                ],
+
                 // ── Tier 3: 알아두면 좋아요 ──
                 if (tier3.isNotEmpty) ...[
                   SliverToBoxAdapter(
@@ -184,7 +273,7 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
                       '${tier3.length}개',
                       AppTheme.secondary,
                       Icons.bookmark_border_outlined,
-                      '일부 조건이 맞지 않지만 참고할 만한 서비스',
+                      '참고할 만한 서비스 전체 목록',
                     ),
                   ),
                   SliverPadding(
@@ -208,6 +297,7 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
                 ],
 
                 const SliverToBoxAdapter(child: SizedBox(height: 24)),
+
                     ],
                   ),
                 ),
@@ -253,6 +343,83 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
                 style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildProviderCard(Map<String, String> provider) {
+    const teal = Color(0xFF00796B);
+    const tealLight = Color(0xFFE0F2F1);
+    const tealBorder = Color(0xFF80CBC4);
+    final name = provider['name'] ?? '';
+    final addr = provider['addr'] ?? '';
+    final phone = provider['phone'] ?? '';
+
+    return GestureDetector(
+      onTap: phone.isNotEmpty
+          ? () async {
+              final uri = Uri(scheme: 'tel', path: phone);
+              if (await canLaunchUrl(uri)) launchUrl(uri);
+            }
+          : null,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: tealLight,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: tealBorder),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            // 기관 아이콘
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: teal.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.business_outlined, color: teal, size: 18),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(name, style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
+                Row(children: [
+                  const Text('서비스 기관', style: TextStyle(fontSize: 12, color: teal)),
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: teal.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text('📍 지역',
+                        style: TextStyle(fontSize: 10, color: teal, fontWeight: FontWeight.w700)),
+                  ),
+                ]),
+              ]),
+            ),
+            const Icon(Icons.arrow_forward_ios, size: 14, color: teal),
+          ]),
+          if (addr.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(addr,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary, height: 1.4)),
+          ],
+          if (phone.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Row(children: [
+              const Icon(Icons.phone_outlined, size: 13, color: teal),
+              const SizedBox(width: 4),
+              Text(phone, style: const TextStyle(
+                  fontSize: 12, color: teal, fontWeight: FontWeight.w600)),
+            ]),
+          ],
+        ]),
       ),
     );
   }
@@ -402,7 +569,11 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
               child: FilterChip(
                 label: Text(cat.$2),
                 selected: isSelected,
-                onSelected: (_) => setState(() => _selectedCategory = cat.$1),
+                onSelected: (_) {
+                  setState(() => _selectedCategory = cat.$1);
+                  final profile = context.read<ProfileProvider>().selectedProfile;
+                  if (profile != null) _loadLocalProviders(cat.$1, profile.region);
+                },
                 selectedColor: AppTheme.primary.withValues(alpha: 0.15),
                 checkmarkColor: AppTheme.primary,
                 labelStyle: TextStyle(

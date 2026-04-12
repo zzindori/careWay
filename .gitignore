@@ -3,6 +3,9 @@
 *.log
 *.pyc
 *.swp
+
+# API Keys
+lib/config/secrets.dart
 .DS_Store
 .atom/
 .build/

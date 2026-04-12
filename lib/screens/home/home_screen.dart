@@ -114,30 +114,31 @@ class _HomeScreenState extends State<HomeScreen> {
     final services = provider.allServices;
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
       children: [
-        Text(
+        // ── 헤더 ─────────────────────────────────────────────
+        const Text(
           '부모님 맞춤 혜택',
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
             color: AppTheme.textPrimary,
           ),
         ),
         const SizedBox(height: 4),
         Text(
           services.isEmpty
-              ? '서비스 정보를 불러오는 중...'
-              : '카드를 탭하면 맞춤 혜택 목록을 볼 수 있어요',
-          style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+              ? '혜택 정보를 불러오는 중이에요...'
+              : '${provider.profiles.length}명의 부모님 혜택을 확인해보세요',
+          style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
         ...provider.profiles.map((profile) {
           final counts = services.isNotEmpty
               ? _tierCounts(services, profile)
               : (t1: 0, t2: 0, t3: 0);
           return Padding(
-            padding: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.only(bottom: 16),
             child: ProfileCard(
               profile: profile,
               isSelected: provider.selectedProfile?.id == profile.id,

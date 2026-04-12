@@ -98,7 +98,7 @@ class WelfareService {
   static const _nonElderlyKeywords = [
     '청소년', '아동', '어린이', '초등', '중학', '고등', '학생',
     '임신', '임산부', '산모', '영유아', '영아', '유아', '신생아',
-    '청년', '대학생',
+    '청년', '대학생', '다문화',
   ];
 
   static const _elderlyKeywords = [
@@ -236,7 +236,7 @@ class WelfareService {
         targetAgeGroup == 'infant' || targetAgeGroup == 'disabled') {
       return 0;
     }
-    if (targetAgeGroup == 'unknown' && _isObviouslyNotElderly) return 0;
+    if ((targetAgeGroup == 'unknown' || targetAgeGroup == 'all') && _isObviouslyNotElderly) return 0;
     if (requiresDisability) return 0;
 
     // 보훈 전용인데 보훈대상자 아님

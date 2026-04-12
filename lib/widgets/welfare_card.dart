@@ -90,7 +90,7 @@ class WelfareCard extends StatelessWidget {
                               color: Colors.green.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(8),
                             ),
-                            child: const Text('✓ 해당됨',
+                            child: const Text('✓ 우선 확인',
                                 style: TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.w700)),
                           ),
                         ],

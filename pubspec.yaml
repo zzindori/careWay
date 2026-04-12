@@ -30,6 +30,9 @@ dependencies:
   # URL 열기 (복지 신청 링크)
   url_launcher: ^6.3.0
 
+  # HTTP 클라이언트
+  http: ^1.2.0
+
   # 로컬 알림
   flutter_local_notifications: ^18.0.0
 

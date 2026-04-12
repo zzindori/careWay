@@ -15,9 +15,9 @@ class WelfareListScreen extends StatefulWidget {
 
 class _WelfareListScreenState extends State<WelfareListScreen> {
   String _selectedCategory = 'all';
+  bool _isRefreshing = false;
 
   final _categories = [
-    ('all', '전체'),
     ('medical', '의료'),
     ('care', '돌봄'),
     ('living', '생활지원'),
@@ -42,6 +42,20 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
     });
   }
 
+  Future<void> _refresh() async {
+    if (_isRefreshing) return;
+    setState(() => _isRefreshing = true);
+    final provider = context.read<ProfileProvider>();
+    final profile = provider.selectedProfile;
+    if (profile != null) {
+      await provider.loadAllWelfareServices(
+        regionFilter: ProfileProvider.normalizeRegion(profile.region),
+      );
+      if (mounted) await provider.matchWelfareServices(profile);
+    }
+    if (mounted) setState(() => _isRefreshing = false);
+  }
+
   List<WelfareService> _filter(List<WelfareService> list) {
     if (_selectedCategory == 'all') return list;
     return list.where((s) => s.category == _selectedCategory).toList();
@@ -56,6 +70,22 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
             p.selectedProfile != null ? '${p.selectedProfile!.name}님 맞춤 혜택' : '복지 서비스',
           ),
         ),
+        actions: [
+          _isRefreshing
+              ? const Padding(
+                  padding: EdgeInsets.all(14),
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.refresh),
+                  tooltip: '새로고침',
+                  onPressed: _refresh,
+                ),
+        ],
       ),
       body: SafeArea(
         top: false,
@@ -70,18 +100,20 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
             final tier3 = _filter(provider.tier3Services);
             final profile = provider.selectedProfile;
 
-            return CustomScrollView(
-              slivers: [
-                SliverToBoxAdapter(child: _buildCategoryFilter()),
-
-                // ── Tier 1: 지금 바로 신청 ──
+            return Column(
+              children: [
+                _buildCategoryFilter(),
+                Expanded(
+                  child: CustomScrollView(
+                    slivers: [
+                      // ── Tier 1: 지금 바로 신청 ──
                 SliverToBoxAdapter(
                   child: _buildTierHeader(
-                    '지금 바로 신청',
+                    '우선 확인',
                     '${tier1.length}개',
                     const Color(0xFFE53935),
                     Icons.check_circle_outline,
-                    '조건이 모두 충족된 서비스예요',
+                    '내 프로필과 가장 잘 맞는 서비스예요',
                   ),
                 ),
 
@@ -175,6 +207,9 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
                 ],
 
                 const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                    ],
+                  ),
+                ),
               ],
             );
           },
@@ -347,29 +382,36 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
   }
 
   Widget _buildCategoryFilter() {
-    return SizedBox(
-      height: 44,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        children: _categories.map((cat) {
-          final isSelected = _selectedCategory == cat.$1;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: FilterChip(
-              label: Text(cat.$2),
-              selected: isSelected,
-              onSelected: (_) => setState(() => _selectedCategory = cat.$1),
-              selectedColor: AppTheme.primary.withValues(alpha: 0.15),
-              checkmarkColor: AppTheme.primary,
-              labelStyle: TextStyle(
-                color: isSelected ? AppTheme.primary : AppTheme.textSecondary,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+    final cats = [('all', '전체'), ..._categories];
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+      ),
+      child: SizedBox(
+        height: 48,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          children: cats.map((cat) {
+            final isSelected = _selectedCategory == cat.$1;
+            return Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: FilterChip(
+                label: Text(cat.$2),
+                selected: isSelected,
+                onSelected: (_) => setState(() => _selectedCategory = cat.$1),
+                selectedColor: AppTheme.primary.withValues(alpha: 0.15),
+                checkmarkColor: AppTheme.primary,
+                labelStyle: TextStyle(
+                  color: isSelected ? AppTheme.primary : AppTheme.textSecondary,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                ),
+                side: BorderSide(color: isSelected ? AppTheme.primary : AppTheme.divider),
               ),
-              side: BorderSide(color: isSelected ? AppTheme.primary : AppTheme.divider),
-            ),
-          );
-        }).toList(),
+            );
+          }).toList(),
+        ),
       ),
     );
   }

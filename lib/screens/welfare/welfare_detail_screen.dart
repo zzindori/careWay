@@ -1,8 +1,13 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../models/welfare_service.dart';
 import '../../providers/profile_provider.dart';
 import '../../config/app_theme.dart';
+import '../../config/secrets.dart';
 
 class WelfareDetailScreen extends StatefulWidget {
   final String serviceId;
@@ -55,7 +60,12 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
     final tier = profile != null ? service.getMatchTier(profile) : -1;
 
     return Scaffold(
-      appBar: AppBar(title: Text(service.name, maxLines: 1, overflow: TextOverflow.ellipsis)),
+      appBar: AppBar(
+        title: GestureDetector(
+          onLongPress: () => _showAdminSheet(service),
+          child: Text(service.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
@@ -168,8 +178,7 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
             title: '문의처',
             icon: Icons.phone_outlined,
             child: service.inqPlace.isNotEmpty
-                ? Text(service.inqPlace,
-                    style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary, height: 1.5))
+                ? _buildPhoneContent(service.inqPlace, const Color(0xFF37474F))
                 : _pendingText(),
           ),
 
@@ -200,6 +209,8 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
     '지원 혜택': Icons.card_giftcard_outlined,
     '신청 방법': Icons.how_to_reg_outlined,
     '문의처': Icons.phone_outlined,
+    '담당 부서': Icons.business_outlined,
+    '소재지': Icons.location_on_outlined,
   };
 
   static const _sectionColors = <String, Color>{
@@ -209,15 +220,35 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
     '지원 혜택': Color(0xFFE65100),
     '신청 방법': Color(0xFF00695C),
     '문의처': Color(0xFF37474F),
+    '담당 부서': Color(0xFF455A64),
+    '소재지': Color(0xFF00695C),
+  };
+
+  // 표시할 섹션만 정의 (raw 필드명 → 표시 이름, null이면 숨김)
+  static const _labelMap = <String, String>{
+    '서비스 개요': '서비스 개요',
+    '지원 대상': '지원 대상',
+    '선정 기준': '선정 기준',
+    '지원 혜택': '지원 혜택',
+    '신청 방법': '신청 방법',
+    '문의처': '문의처',
+    'bizChrDeptNm': '담당 부서',
+    'addr': '소재지',
+    'wlfareSprtTrgtSlcrCn': '선정 기준',  // 선정 기준 없을 때 폴백
   };
 
   List<MapEntry<String, String>> _parseRawSections(String raw) {
     final sections = <MapEntry<String, String>>[];
+    final usedLabels = <String>{};
     final pattern = RegExp(r'\[([^\]]+)\]\n([\s\S]*?)(?=\n\n\[|$)');
     for (final m in pattern.allMatches(raw)) {
-      final label = m.group(1)!.trim();
+      final rawLabel = m.group(1)!.trim();
       final content = m.group(2)!.trim();
-      if (content.isNotEmpty) sections.add(MapEntry(label, content));
+      final displayLabel = _labelMap[rawLabel];
+      if (displayLabel == null || content.isEmpty) continue;
+      if (usedLabels.contains(displayLabel)) continue; // 중복 섹션 스킵
+      usedLabels.add(displayLabel);
+      sections.add(MapEntry(displayLabel, content));
     }
     return sections;
   }
@@ -286,31 +317,107 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
         final color = _sectionColors[label] ?? AppTheme.primary;
         final icon = _sectionIcons[label] ?? Icons.chevron_right;
 
-        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          if (idx > 0)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 14),
-              child: Divider(height: 1, color: Color(0xFFEEEEEE)),
+        return Padding(
+          padding: EdgeInsets.only(top: idx > 0 ? 10 : 0),
+          child: Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: color.withValues(alpha: 0.2)),
             ),
-          // 섹션 레이블
-          Row(children: [
-            Icon(icon, size: 14, color: color),
-            const SizedBox(width: 5),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 11,
-                    color: color,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.3)),
-          ]),
-          const SizedBox(height: 7),
-          // 섹션 내용
-          Text(content,
-              style: const TextStyle(
-                  fontSize: 14, color: AppTheme.textPrimary, height: 1.65)),
-        ]);
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              // 레이블 헤더
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+                ),
+                child: Row(children: [
+                  Icon(icon, size: 13, color: color),
+                  const SizedBox(width: 5),
+                  Text(label,
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: color,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.3)),
+                ]),
+              ),
+              // 내용
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: label == '문의처'
+                    ? _buildPhoneContent(content, color)
+                    : Text(content,
+                        style: const TextStyle(
+                            fontSize: 13, color: AppTheme.textPrimary, height: 1.65)),
+              ),
+            ]),
+          ),
+        );
       }).toList(),
     );
+  }
+
+  Widget _buildPhoneContent(String content, Color color) {
+    final phoneRegex = RegExp(r'[\d]{2,4}-[\d]{3,4}-[\d]{4}');
+    final phones = phoneRegex.allMatches(content).map((m) => m.group(0)!).toList();
+
+    if (phones.isEmpty) {
+      return Text(content,
+          style: const TextStyle(fontSize: 13, color: AppTheme.textPrimary, height: 1.65));
+    }
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: phones.map((phone) => GestureDetector(
+        onTap: () => _confirmCall(phone),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: color.withValues(alpha: 0.4)),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.phone, size: 14, color: color),
+            const SizedBox(width: 6),
+            Text(phone,
+                style: TextStyle(
+                    fontSize: 13,
+                    color: color,
+                    fontWeight: FontWeight.w600)),
+          ]),
+        ),
+      )).toList(),
+    );
+  }
+
+  Future<void> _confirmCall(String phone) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('전화 연결'),
+        content: Text('$phone\n으로 전화하시겠습니까?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('전화하기'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      final uri = Uri(scheme: 'tel', path: phone);
+      if (await canLaunchUrl(uri)) launchUrl(uri);
+    }
   }
 
   Widget _section({
@@ -394,4 +501,335 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
           style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
     );
   }
+
+  // ─── 어드민 바텀시트 ───────────────────────────────────────
+
+  void _showAdminSheet(WelfareService service) {
+    final ageGroups = [
+      ('unknown', '미분류'),
+      ('elderly', '노년'),
+      ('adult', '성인'),
+      ('child', '아동'),
+      ('veteran', '보훈'),
+      ('disabled', '장애'),
+      ('all', '전체'),
+    ];
+
+    String targetAge = service.targetAgeGroup;
+    String region = service.region;
+    int? minAge = service.minAge > 0 ? service.minAge : null;
+    int maxIncome = service.maxIncomeLevel;
+    bool ltcGrade = service.requiresLtcGrade;
+    bool alone = service.requiresAlone;
+    bool basic = service.requiresBasicRecipient;
+    bool veteran = service.requiresVeteran;
+    bool disability = service.requiresDisability;
+    String summary = service.aiSummary;
+
+    final summaryCtrl = TextEditingController(text: summary);
+    final minAgeCtrl = TextEditingController(text: minAge?.toString() ?? '');
+    bool aiLoading = false;
+    bool saving = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setSt) => DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.9,
+          maxChildSize: 0.95,
+          minChildSize: 0.5,
+          builder: (_, sc) => Column(children: [
+            // 핸들
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 10),
+              width: 40, height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(children: [
+                const Icon(Icons.admin_panel_settings, size: 18, color: Colors.deepPurple),
+                const SizedBox(width: 6),
+                const Expanded(child: Text('어드민 수정',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.deepPurple))),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+              ]),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView(controller: sc, padding: const EdgeInsets.all(16), children: [
+
+                // ── AI 전체 자동 분류 ───────────────────────
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF388E3C),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: aiLoading ? null : () async {
+                      setSt(() => aiLoading = true);
+                      try {
+                        final raw = service.rawContent.isNotEmpty
+                            ? service.rawContent.substring(0, service.rawContent.length.clamp(0, 2500))
+                            : '';
+                        final prompt = '''당신은 한국 복지 서비스 분류 전문가입니다.
+아래 복지 서비스를 분석하여 JSON 형식으로만 응답해주세요. 마크다운 없이 순수 JSON만 출력하세요.
+
+서비스명: ${service.name}
+지원 대상: ${service.targetInfo}
+지원 혜택: ${service.benefitInfo}
+${raw.isNotEmpty ? '원문:\n$raw' : ''}
+
+반환할 JSON 형식:
+{
+  "target_age_group": "elderly",  // unknown/elderly/adult/child/veteran/disabled/all 중 하나
+  "region": "전국",  // 전국/서울/부산/대구/인천/광주/대전/울산/세종/경기/강원/충북/충남/전북/전남/경북/경남/제주 중 하나
+  "min_age": null,  // 최소 신청 나이 (숫자 또는 null)
+  "max_income_level": 10,  // 소득분위 1~10 (제한 없으면 10)
+  "requires_ltc_grade": false,  // 장기요양등급 필요 여부
+  "requires_alone": false,  // 독거 필요 여부
+  "requires_basic_recipient": false,  // 기초생활수급자 필요 여부
+  "requires_veteran": false,  // 보훈대상자 필요 여부
+  "requires_disability": false,  // 장애인 필요 여부
+  "ai_summary": "..."  // 자녀가 부모님 혜택을 찾을 때 바로 이해할 수 있는 2~3문장 요약
+}''';
+
+                        final res = await http.post(
+                          Uri.parse(
+                            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$kGeminiApiKey',
+                          ),
+                          headers: {'Content-Type': 'application/json'},
+                          body: jsonEncode({
+                            'contents': [{'parts': [{'text': prompt}]}],
+                            'generationConfig': {'temperature': 0.1, 'maxOutputTokens': 600},
+                          }),
+                        );
+                        if (res.statusCode == 200) {
+                          final data = jsonDecode(res.body);
+                          var text = data['candidates']?[0]?['content']?['parts']?[0]?['text'] as String? ?? '';
+                          // 마크다운 코드블럭 제거
+                          text = text.replaceAll(RegExp(r'```json|```'), '').trim();
+                          // 주석 제거 (// ...)
+                          text = text.replaceAll(RegExp(r'//[^\n]*'), '').trim();
+                          final j = jsonDecode(text) as Map<String, dynamic>;
+                          setSt(() {
+                            targetAge = j['target_age_group'] as String? ?? targetAge;
+                            region = j['region'] as String? ?? region;
+                            minAge = j['min_age'] as int?;
+                            maxIncome = (j['max_income_level'] as int?) ?? maxIncome;
+                            ltcGrade = j['requires_ltc_grade'] as bool? ?? ltcGrade;
+                            alone = j['requires_alone'] as bool? ?? alone;
+                            basic = j['requires_basic_recipient'] as bool? ?? basic;
+                            veteran = j['requires_veteran'] as bool? ?? veteran;
+                            disability = j['requires_disability'] as bool? ?? disability;
+                            final s = j['ai_summary'] as String? ?? '';
+                            if (s.isNotEmpty) {
+                              summaryCtrl.text = s;
+                              summary = s;
+                            }
+                            minAgeCtrl.text = minAge?.toString() ?? '';
+                          });
+                        }
+                      } catch (_) {}
+                      setSt(() => aiLoading = false);
+                    },
+                    icon: aiLoading
+                        ? const SizedBox(width: 16, height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.auto_awesome, size: 16),
+                    label: Text(aiLoading ? 'AI 분석 중...' : 'AI 전체 자동 분류',
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text('분류 후 아래에서 수동으로 수정 가능합니다',
+                    style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                    textAlign: TextAlign.center),
+                const SizedBox(height: 20),
+
+                // target_age_group
+                _adminLabel('대상 연령'),
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 6,
+                  children: ageGroups.map((g) {
+                    final sel = targetAge == g.$1;
+                    return ChoiceChip(
+                      label: Text(g.$2),
+                      selected: sel,
+                      onSelected: (_) => setSt(() => targetAge = g.$1),
+                      selectedColor: Colors.deepPurple.withValues(alpha: 0.15),
+                      labelStyle: TextStyle(
+                        color: sel ? Colors.deepPurple : AppTheme.textSecondary,
+                        fontWeight: sel ? FontWeight.w700 : FontWeight.normal,
+                        fontSize: 13,
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+
+                // region
+                _adminLabel('지역'),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6, runSpacing: 6,
+                  children: [
+                    '전국','서울','부산','대구','인천','광주','대전','울산','세종',
+                    '경기','강원','충북','충남','전북','전남','경북','경남','제주',
+                  ].map((r) {
+                    final sel = region == r;
+                    return ChoiceChip(
+                      label: Text(r, style: const TextStyle(fontSize: 12)),
+                      selected: sel,
+                      onSelected: (_) => setSt(() => region = r),
+                      selectedColor: Colors.deepPurple.withValues(alpha: 0.15),
+                      labelStyle: TextStyle(
+                        color: sel ? Colors.deepPurple : AppTheme.textSecondary,
+                        fontWeight: sel ? FontWeight.w700 : FontWeight.normal,
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+
+                // min_age
+                _adminLabel('최소 나이 (없으면 빈칸)'),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: minAgeCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: _adminInputDeco('예: 65'),
+                  onChanged: (v) => minAge = int.tryParse(v),
+                ),
+                const SizedBox(height: 16),
+
+                // max_income_level
+                _adminLabel('최대 소득분위: $maxIncome분위'),
+                Slider(
+                  value: maxIncome.toDouble(),
+                  min: 1, max: 10, divisions: 9,
+                  activeColor: Colors.deepPurple,
+                  label: '$maxIncome분위',
+                  onChanged: (v) => setSt(() => maxIncome = v.round()),
+                ),
+                const SizedBox(height: 8),
+
+                // 스위치들
+                _adminSwitch('장기요양등급 필요', ltcGrade, (v) => setSt(() => ltcGrade = v)),
+                _adminSwitch('독거 필요', alone, (v) => setSt(() => alone = v)),
+                _adminSwitch('기초수급자 필요', basic, (v) => setSt(() => basic = v)),
+                _adminSwitch('보훈 대상자', veteran, (v) => setSt(() => veteran = v)),
+                _adminSwitch('장애인', disability, (v) => setSt(() => disability = v)),
+                const SizedBox(height: 16),
+
+                // ai_summary
+                _adminLabel('AI 요약'),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: summaryCtrl,
+                  maxLines: 4,
+                  decoration: _adminInputDeco('AI 생성 후 수동 수정 가능'),
+                  onChanged: (v) => summary = v,
+                ),
+                const SizedBox(height: 24),
+
+                // 저장 버튼
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepPurple,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: saving ? null : () async {
+                      setSt(() => saving = true);
+                      try {
+                        await Supabase.instance.client
+                            .from('welfare_services')
+                            .update({
+                              'target_age_group': targetAge,
+                              'region': region,
+                              'min_age': minAge,
+                              'max_income_level': maxIncome,
+                              'requires_ltc_grade': ltcGrade,
+                              'requires_alone': alone,
+                              'requires_basic_recipient': basic,
+                              'requires_veteran': veteran,
+                              'requires_disability': disability,
+                              'ai_summary': summaryCtrl.text.trim(),
+                              'filter_updated_at': DateTime.now().toIso8601String(),
+                            })
+                            .eq('id', service.id);
+                        if (ctx.mounted) {
+                          Navigator.pop(ctx);
+                          // 캐시 무시하고 DB에서 직접 재조회
+                          final fresh = await Supabase.instance.client
+                              .from('welfare_services')
+                              .select()
+                              .eq('id', service.id)
+                              .single();
+                          if (mounted) {
+                            setState(() => _service = WelfareService.fromJson(fresh));
+                          }
+                        }
+                      } catch (e) {
+                        setSt(() => saving = false);
+                      }
+                    },
+                    child: saving
+                        ? const SizedBox(width: 20, height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Text('저장', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ]),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _adminLabel(String text) => Text(text,
+      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.textSecondary));
+
+  Widget _adminSwitch(String label, bool value, ValueChanged<bool> onChanged) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 2),
+    child: Row(children: [
+      Expanded(child: Text(label, style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary))),
+      Switch(value: value, onChanged: onChanged, activeColor: Colors.deepPurple),
+    ]),
+  );
+
+  InputDecoration _adminInputDeco(String hint) => InputDecoration(
+    hintText: hint,
+    hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: BorderSide(color: Colors.grey.shade300),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: BorderSide(color: Colors.grey.shade300),
+    ),
+  );
 }

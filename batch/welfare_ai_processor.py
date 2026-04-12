@@ -789,7 +789,19 @@ def run_phase2(supabase) -> int:
                     "filter_confidence": criteria.get("confidence", 0.0),
                     "filter_updated_at": datetime.now(timezone.utc).isoformat(),
                 }).eq("id", svc["id"]).execute()
-                print(f"✓ ({criteria.get('target_age_group', '?')})")
+                age   = criteria.get('target_age_group', '?')
+                reg   = criteria.get('region') or '?'
+                mage  = criteria.get('min_age')
+                inc   = criteria.get('max_income_level', 10)
+                ltc   = '요양O' if criteria.get('requires_ltc_grade') else '요양X'
+                aln   = '독거O' if criteria.get('requires_alone') else '독거X'
+                bas   = '기초O' if criteria.get('requires_basic_recipient') else '기초X'
+                vet   = '보훈O' if criteria.get('requires_veteran') else ''
+                dis   = '장애O' if criteria.get('requires_disability') else ''
+                age_str = f'{mage}세↑' if mage else '-'
+                inc_str = f'소득{inc}↓' if inc < 10 else '소득전체'
+                extras = ' '.join(filter(None, [vet, dis]))
+                print(f"✓ {age} | {reg} | {age_str} | {inc_str} | {ltc} | {aln} | {bas}{(' | ' + extras) if extras else ''}")
                 ok += 1
 
         except Exception as e:

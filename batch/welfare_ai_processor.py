@@ -63,7 +63,7 @@ WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/NationalWelfareInformation
 # 지자체복지서비스 API (한국사회보장정보원, 동일 제공기관 B554287)
 LOCAL_WELFARE_LIST_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfarelist"
 LOCAL_WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfaredetailed"  # 사용 안 함 (웹 스크래핑으로 대체)
-NATIONAL_WELFARE_LIST_URL = "https://apis.data.go.kr/B554287/NationalWelfareInformationsV001/NWelfarelist"
+NATIONAL_WELFARE_LIST_URL = "https://apis.data.go.kr/B554287/NationalWelfareInformationsV001/NationalWelfarelistV001"
 BOKJIRO_WEB_URL = "https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52011M.do"
 
 MODEL = "gemini-2.0-flash"

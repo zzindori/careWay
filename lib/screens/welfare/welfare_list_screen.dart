@@ -16,6 +16,7 @@ class WelfareListScreen extends StatefulWidget {
 class _WelfareListScreenState extends State<WelfareListScreen> {
   String _selectedCategory = 'all';
   bool _isRefreshing = false;
+  final Set<String> _disabledConditions = {};  // 비활성화된 필터 조건
 
   final _categories = [
     ('medical', '의료'),
@@ -100,9 +101,21 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
             final tier3 = _filter(provider.tier3Services);
             final profile = provider.selectedProfile;
 
+            // 조건 해제 시 추가 서비스 (이전에 숨겨진 것들)
+            final alreadyShownIds = {
+              for (final s in [...provider.tier1Services, ...provider.tier2Services, ...provider.tier3Services]) s.id,
+            };
+            final relaxed = profile != null
+                ? _getRelaxedServices(provider.allServices, profile, alreadyShownIds)
+                : <WelfareService>[];
+            final relaxedFiltered = _selectedCategory == 'all'
+                ? relaxed
+                : relaxed.where((s) => s.category == _selectedCategory).toList();
+
             return Column(
               children: [
                 _buildCategoryFilter(),
+                if (profile != null) _buildConditionFilter(profile),
                 Expanded(
                   child: CustomScrollView(
                     slivers: [
@@ -201,6 +214,37 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
                           );
                         },
                         childCount: tier3.length,
+                      ),
+                    ),
+                  ),
+                ],
+
+                // ── 조건 해제 추가 서비스 ──────────────────────
+                if (relaxedFiltered.isNotEmpty) ...[
+                  SliverToBoxAdapter(
+                    child: _buildTierHeader(
+                      '조건 해제 시 추가',
+                      '${relaxedFiltered.length}개',
+                      Colors.blueGrey.shade400,
+                      Icons.lock_open_outlined,
+                      '해제한 조건을 끄면 볼 수 있는 서비스예요',
+                    ),
+                  ),
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    sliver: SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (_, i) {
+                          final svc = relaxedFiltered[i];
+                          final reasons = profile != null
+                              ? svc.getMismatchReasons(profile)
+                              : <String>[];
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: _buildTier3Card(context, svc, reasons),
+                          );
+                        },
+                        childCount: relaxedFiltered.length,
                       ),
                     ),
                   ),
@@ -379,6 +423,156 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
       return (Icons.location_on_outlined, Colors.teal.shade600);
     }
     return (Icons.info_outline, Colors.grey.shade600);
+  }
+
+  // ─── 조건 필터 ─────────────────────────────────────────────
+
+  static const _conditionDefs = [
+    ('region',   '지역',   Icons.location_on_outlined),
+    ('income',   '소득',   Icons.account_balance_wallet_outlined),
+    ('ltcGrade', '장기요양', Icons.elderly_outlined),
+    ('alone',    '독거',   Icons.person_outlined),
+    ('basic',    '기초수급', Icons.support_outlined),
+  ];
+
+  List<(String, String, IconData)> _getAvailableConditions(profile) {
+    final list = <(String, String, IconData)>[];
+    list.add(_conditionDefs[0]); // 지역 항상 표시
+    if (profile.incomeLevel != null && profile.incomeLevel! <= 8) {
+      list.add(_conditionDefs[1]); // 소득: 설정된 경우
+    }
+    if (!profile.hasLtcGrade) {
+      list.add(_conditionDefs[2]); // 장기요양: 등급 없는 경우
+    }
+    if (!profile.liveAlone) {
+      list.add(_conditionDefs[3]); // 독거: 독거 아닌 경우
+    }
+    if (!profile.isBasicRecipient) {
+      list.add(_conditionDefs[4]); // 기초수급: 비수급 경우
+    }
+    return list;
+  }
+
+  Widget _buildConditionFilter(profile) {
+    final available = _getAvailableConditions(profile);
+    if (available.isEmpty) return const SizedBox.shrink();
+
+    final anyDisabled = _disabledConditions.isNotEmpty;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: anyDisabled ? const Color(0xFFFFF8E1) : const Color(0xFFF8F9FA),
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+            child: Row(children: [
+              Icon(Icons.tune, size: 11, color: Colors.grey.shade500),
+              const SizedBox(width: 4),
+              Text(
+                anyDisabled ? '일부 조건 해제됨 · 더 많은 서비스 표시 중' : '적용 중인 조건',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: anyDisabled ? const Color(0xFFF57C00) : Colors.grey.shade500,
+                  fontWeight: anyDisabled ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+            ]),
+          ),
+          SizedBox(
+            height: 42,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              children: available.map((c) {
+                final isOn = !_disabledConditions.contains(c.$1);
+                return Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: FilterChip(
+                    avatar: Icon(c.$3, size: 12,
+                        color: isOn ? AppTheme.primary : Colors.grey.shade400),
+                    label: Text(c.$2),
+                    selected: isOn,
+                    showCheckmark: false,
+                    onSelected: (_) => setState(() {
+                      if (isOn) { _disabledConditions.add(c.$1); }
+                      else { _disabledConditions.remove(c.$1); }
+                    }),
+                    selectedColor: AppTheme.primary.withValues(alpha: 0.12),
+                    labelStyle: TextStyle(
+                      fontSize: 11,
+                      color: isOn ? AppTheme.primary : Colors.grey.shade400,
+                      fontWeight: isOn ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                    side: BorderSide(
+                      color: isOn ? AppTheme.primary : Colors.grey.shade300,
+                    ),
+                    backgroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<WelfareService> _getRelaxedServices(
+    List<WelfareService> allServices,
+    profile,
+    Set<String> alreadyShownIds,
+  ) {
+    if (_disabledConditions.isEmpty) return [];
+    return allServices
+        .where((s) => !alreadyShownIds.contains(s.id) && _matchesRelaxed(s, profile))
+        .toList();
+  }
+
+  bool _matchesRelaxed(WelfareService svc, profile) {
+    // 항상 제외: 근본적으로 다른 대상
+    final tg = svc.targetAgeGroup;
+    if (tg == 'youth' || tg == 'child' || tg == 'infant') return false;
+    if (svc.requiresVeteran && !profile.isVeteran) return false;
+    if (svc.requiresDisability) return false;
+
+    // 나이는 항상 적용 (바꿀 수 없음)
+    if (svc.minAge > 0 && profile.age < svc.minAge) return false;
+
+    // 지역: 비활성이면 스킵
+    if (!_disabledConditions.contains('region')) {
+      if (svc.region.isNotEmpty && svc.region != '전국') {
+        if (svc.region != ProfileProvider.normalizeRegion(profile.region)) return false;
+      }
+    }
+
+    // 소득: 비활성이면 스킵
+    if (!_disabledConditions.contains('income')) {
+      if (svc.maxIncomeLevel < 10 && profile.incomeLevel != null) {
+        if (profile.incomeLevel! > svc.maxIncomeLevel) return false;
+      }
+    }
+
+    // 장기요양: 비활성이면 스킵
+    if (!_disabledConditions.contains('ltcGrade')) {
+      if (svc.requiresLtcGrade && !profile.hasLtcGrade) return false;
+    }
+
+    // 독거: 비활성이면 스킵
+    if (!_disabledConditions.contains('alone')) {
+      if (svc.requiresAlone && !profile.liveAlone) return false;
+    }
+
+    // 기초수급: 비활성이면 스킵
+    if (!_disabledConditions.contains('basic')) {
+      if (svc.requiresBasicRecipient && !profile.isBasicRecipient) return false;
+    }
+
+    return true;
   }
 
   Widget _buildCategoryFilter() {

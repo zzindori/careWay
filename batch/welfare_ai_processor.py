@@ -828,6 +828,88 @@ def run_phase2(supabase) -> int:
 
 
 # ════════════════════════════════════════════════════════════════════════════════
+# PHASE 2r: 전체 서비스 순환 재분류 (오래된 순)
+# ════════════════════════════════════════════════════════════════════════════════
+
+def run_phase2r(supabase) -> int:
+    print("\n━━━ PHASE 2r: 전체 순환 재분류 (oldest first) ━━━")
+
+    result = (
+        supabase.table("welfare_services")
+        .select("id, name, target_info, benefit_info, detail_content, raw_content, region")
+        .not_.is_("filter_updated_at", "null")
+        .order("filter_updated_at", desc=False)
+        .limit(1000)
+        .execute()
+    )
+    services = result.data
+    if not services:
+        print("  ✅ 재분류할 서비스 없음")
+        return 0
+
+    print(f"  처리 대상: {len(services)}개 (모델: {MODEL})")
+    print(f"  예상 소요시간: 약 {len(services) * GEMINI_DELAY / 60:.0f}분")
+
+    genai_client = google_genai.Client(api_key=GEMINI_API_KEY)
+    ok = fail = parse_err = 0
+
+    for i, svc in enumerate(services):
+        name_short = (svc.get("name") or "")[:25]
+        print(f"  [{i+1}/{len(services)}] {name_short}... ", end="", flush=True)
+
+        try:
+            response = genai_client.models.generate_content(
+                model=MODEL, contents=make_prompt(svc)
+            )
+            criteria = parse_json_response(response.text)
+
+            if criteria is None:
+                print("⚠ JSON 파싱 오류")
+                parse_err += 1
+            else:
+                supabase.table("welfare_services").update({
+                    "category": criteria.get("category", "living"),
+                    "min_age": criteria.get("min_age"),
+                    "max_income_level": criteria.get("max_income_level", 10),
+                    "requires_ltc_grade": criteria.get("requires_ltc_grade", False),
+                    "requires_alone": criteria.get("requires_alone", False),
+                    "requires_basic_recipient": criteria.get("requires_basic_recipient", False),
+                    "requires_disability": criteria.get("requires_disability", False),
+                    "requires_veteran": criteria.get("requires_veteran", False),
+                    "service_tags": criteria.get("service_tags", []),
+                    "target_age_group": criteria.get("target_age_group", "unknown"),
+                    "region": normalize_region(criteria.get("region") or svc.get("region") or "전국"),
+                    "ai_summary": criteria.get("summary", ""),
+                    "ai_criteria": criteria,
+                    "filter_confidence": criteria.get("confidence", 0.0),
+                    "filter_updated_at": datetime.now(timezone.utc).isoformat(),
+                }).eq("id", svc["id"]).execute()
+                age  = criteria.get('target_age_group', '?')
+                reg  = criteria.get('region') or '?'
+                mage = criteria.get('min_age')
+                inc  = criteria.get('max_income_level', 10)
+                ltc  = '요양O' if criteria.get('requires_ltc_grade') else '요양X'
+                aln  = '독거O' if criteria.get('requires_alone') else '독거X'
+                bas  = '기초O' if criteria.get('requires_basic_recipient') else '기초X'
+                vet  = '보훈O' if criteria.get('requires_veteran') else ''
+                dis  = '장애O' if criteria.get('requires_disability') else ''
+                age_str = f'{mage}세↑' if mage else '-'
+                inc_str = f'소득{inc}↓' if inc < 10 else '소득전체'
+                extras = ' '.join(filter(None, [vet, dis]))
+                print(f"✓ {age} | {reg} | {age_str} | {inc_str} | {ltc} | {aln} | {bas}{(' | ' + extras) if extras else ''}")
+                ok += 1
+
+        except Exception as e:
+            print(f"❌ {e}")
+            fail += 1
+
+        time.sleep(GEMINI_DELAY)
+
+    print(f"\n  Phase 2r 완료: 성공={ok}, JSON오류={parse_err}, 기타오류={fail}")
+    return ok
+
+
+# ════════════════════════════════════════════════════════════════════════════════
 # FIX REGION: 지자체 서비스 region 후처리 (전국 → 실제 지역)
 # ════════════════════════════════════════════════════════════════════════════════
 
@@ -936,6 +1018,8 @@ def main(phase=None):
         run_phase1(supabase)
     elif phase == "2":
         run_phase2(supabase)
+    elif phase == "2r":
+        run_phase2r(supabase)
     elif phase == "fix_region":
         run_fix_region(supabase)
     else:

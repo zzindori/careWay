@@ -558,6 +558,7 @@ def txt_from(element, tag: str) -> str:
 def run_phase1(supabase) -> int:
     print("\n━━━ PHASE 1: 복지로 API 상세 수집 ━━━")
 
+    # 1차: 아직 한번도 수집 안 한 것
     result = (
         supabase.table("welfare_services")
         .select("id, name, online_url")
@@ -565,7 +566,17 @@ def run_phase1(supabase) -> int:
         .is_("detail_fetched_at", "null")
         .execute()
     )
-    services = result.data
+    # 2차: 수집했지만 raw_content 비어있는 것 (재수집)
+    result2 = (
+        supabase.table("welfare_services")
+        .select("id, name, online_url")
+        .eq("source", "national")
+        .not_.is_("detail_fetched_at", "null")
+        .eq("raw_content", "")
+        .not_.is_("online_url", "null")
+        .execute()
+    )
+    services = result.data + result2.data
     if not services:
         print("  ✅ 모든 서비스 상세 수집 완료")
         return 0

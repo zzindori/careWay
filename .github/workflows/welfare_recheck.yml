@@ -1,0 +1,35 @@
+name: CareWay 복지서비스 순환 재분류 (2r)
+
+on:
+  schedule:
+    - cron: '0 18 * * *'  # 매일 새벽 3시 KST (기존 배치 2시 이후)
+
+  workflow_dispatch:
+
+jobs:
+  recheck:
+    name: 전체 서비스 순환 재분류
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: batch/requirements.txt
+
+      - name: 패키지 설치
+        run: pip install -r batch/requirements.txt
+
+      - name: Phase 2r - 전체 순환 재분류 (오래된 순 1000건)
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
+          LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
+        run: python batch/welfare_ai_processor.py --phase 2r

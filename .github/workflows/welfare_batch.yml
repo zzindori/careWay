@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       phase:
-        description: '실행할 Phase (0=지자체목록, 0_detail=상세수집, 1=복지로API, 2=AI분류, 2r=순환재분류, both=전체)'
+        description: '실행할 Phase (0=지자체목록, 0_detail=상세수집, 1=복지로API, 2=AI분류, both=전체)'
         required: false
         default: 'both'
         type: choice
@@ -17,7 +17,6 @@ on:
           - '0_detail'
           - '1'
           - '2'
-          - '2r'
           - fix_region
 
 jobs:
@@ -83,16 +82,6 @@ jobs:
           WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
           LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
         run: python batch/welfare_ai_processor.py --phase 2
-
-      # Phase 2r 순환 재분류 → 매일 자동 + 수동 '2r' 선택
-      - name: Phase 2r - 전체 순환 재분류
-        if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == '2r' }}
-        env:
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
-          LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
-        run: python batch/welfare_ai_processor.py --phase 2r
 
       - name: Fix Region - 지역 후처리
         if: ${{ inputs.phase == 'fix_region' }}

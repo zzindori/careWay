@@ -2,7 +2,7 @@ name: CareWay 복지서비스 배치
 
 on:
   schedule:
-    - cron: '0 17 * * *'  # 매일 새벽 2시 KST
+    - cron: '0 16 * * *'  # 매일 새벽 1시 KST
 
   workflow_dispatch:
     inputs:
@@ -42,9 +42,9 @@ jobs:
       - name: Playwright 브라우저 설치
         run: playwright install --with-deps chromium
 
-      # Phase 0 목록 수집 → 수동 '0' 선택할 때만
+      # Phase 0 목록 수집 → 매일 자동 + 수동 '0' 선택
       - name: Phase 0 - 지자체복지서비스 목록 수집
-        if: ${{ inputs.phase == '0' }}
+        if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == '0' }}
         env:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -84,7 +84,7 @@ jobs:
         run: python batch/welfare_ai_processor.py --phase 2
 
       - name: Fix Region - 지역 후처리
-        if: ${{ inputs.phase == 'fix_region' }}
+        if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == 'fix_region' }}
         env:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

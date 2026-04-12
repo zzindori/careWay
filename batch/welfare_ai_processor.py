@@ -63,7 +63,6 @@ WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/NationalWelfareInformation
 # 지자체복지서비스 API (한국사회보장정보원, 동일 제공기관 B554287)
 LOCAL_WELFARE_LIST_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfarelist"
 LOCAL_WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfaredetailed"  # 사용 안 함 (웹 스크래핑으로 대체)
-NATIONAL_WELFARE_LIST_URL = "https://apis.data.go.kr/B554287/NationalWelfareInformationsV001/NationalWelfarelistV001"
 BOKJIRO_WEB_URL = "https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52011M.do"
 
 MODEL = "gemini-2.0-flash"
@@ -237,113 +236,6 @@ def run_phase0(supabase) -> int:
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# PHASE 0 NATIONAL: 중앙부처복지서비스 목록 수집 → DB 신규 등록
-# ════════════════════════════════════════════════════════════════════════════════
-
-def fetch_national_welfare_list(page: int, num_rows: int = 100) -> tuple:
-    """중앙부처복지서비스 목록 1페이지 조회"""
-    try:
-        resp = requests.get(NATIONAL_WELFARE_LIST_URL, params={
-            "serviceKey": WELFARE_API_KEY,
-            "pageNo": page,
-            "numOfRows": num_rows,
-        }, timeout=15)
-        resp.raise_for_status()
-        root = ET.fromstring(resp.text)
-
-        items = []
-        for item in root.findall(".//servList"):
-            def g(tag, _item=item):
-                el = _item.find(tag)
-                return (el.text or "").strip() if el is not None else ""
-
-            serv_id = g("servId")
-            items.append({
-                "serv_id": serv_id,
-                "name": g("servNm"),
-                "category": CATEGORY_MAP.get(g("lifeArray"), "living"),
-                "description": g("servDgst") or g("servSumry"),
-                "target_info": g("tgtrDscr"),
-                "benefit_info": g("givBnfScpCn"),
-                "apply_place": g("aplyMtd"),
-                "region": normalize_region(g("ctpvNm") or "") or "전국",
-            })
-
-        total_el = root.find(".//totalCount") or root.find(".//totCnt")
-        total = int(total_el.text) if total_el is not None and total_el.text else len(items)
-        return items, total
-
-    except Exception as e:
-        print(f"    중앙부처 목록 조회 오류 (page {page}): {e}")
-        return [], 0
-
-
-def run_phase0_national(supabase) -> int:
-    """Phase 0 National: 중앙부처복지서비스 전체 목록 수집 → welfare_services 신규 등록"""
-    print("\n━━━ PHASE 0 NATIONAL: 중앙부처복지서비스 수집 ━━━")
-
-    existing = supabase.table("welfare_services").select("online_url").eq("source", "national").execute()
-    existing_ids = {r["online_url"] for r in existing.data if r.get("online_url")}
-    print(f"  기존 중앙부처 서비스: {len(existing_ids)}개")
-
-    page, num_rows = 1, 100
-    total_new = total_skip = 0
-
-    while True:
-        print(f"  페이지 {page} 조회 중...", end="", flush=True)
-        items, total_count = fetch_national_welfare_list(page, num_rows)
-
-        if not items:
-            break
-
-        if page == 1:
-            print(f" 총 {total_count}개 서비스 발견")
-
-        new_items = [it for it in items if it["serv_id"] and it["serv_id"] not in existing_ids]
-        skip_items = len(items) - len(new_items)
-        total_skip += skip_items
-
-        for it in new_items:
-            if not it["name"]:
-                continue
-            try:
-                supabase.table("welfare_services").upsert({
-                    "name": it["name"],
-                    "category": it["category"],
-                    "description": it["description"] or it["name"],
-                    "target_info": it["target_info"],
-                    "benefit_info": it["benefit_info"],
-                    "apply_place": it["apply_place"],
-                    "online_url": it["serv_id"],
-                    "difficulty": 2,
-                    "is_renewable": False,
-                    "min_age": 0,
-                    "max_income_level": 10,
-                    "requires_ltc_grade": False,
-                    "requires_alone": False,
-                    "requires_basic_recipient": False,
-                    "target_age_group": "unknown",
-                    "region": it.get("region", "전국"),
-                    "source": "national",
-                }, on_conflict="online_url").execute()
-                existing_ids.add(it["serv_id"])
-                total_new += 1
-            except Exception as e:
-                if "duplicate" not in str(e).lower():
-                    print(f"\n    ⚠ 삽입 오류 ({it['serv_id']}): {e}")
-
-        print(f"  → 신규 {len(new_items)}개 등록, 중복 {skip_items}개 스킵")
-        time.sleep(API_REQUEST_DELAY)
-
-        if len(items) < num_rows:
-            break
-        page += 1
-
-    print(f"\n  Phase 0 National 완료: 신규 등록={total_new}, 중복 스킵={total_skip}")
-    return total_new
-
-
-
 # ════════════════════════════════════════════════════════════════════════════════
 
 WEB_HEADERS = {
@@ -1029,8 +921,6 @@ def main(phase=None):
 
     if phase == "0":
         run_phase0(supabase)
-    elif phase == "0_national":
-        run_phase0_national(supabase)
     elif phase == "0_detail":
         run_phase0_detail(supabase)
     elif phase == "1":

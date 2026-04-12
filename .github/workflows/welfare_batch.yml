@@ -84,9 +84,9 @@ jobs:
           LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
         run: python batch/welfare_ai_processor.py --phase 2
 
-      # Phase 2r 순환 재분류 → 수동 '2r' 선택만
+      # Phase 2r 순환 재분류 → 매일 자동 + 수동 '2r' 선택
       - name: Phase 2r - 전체 순환 재분류
-        if: ${{ inputs.phase == '2r' }}
+        if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == '2r' }}
         env:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

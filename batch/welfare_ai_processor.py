@@ -628,6 +628,14 @@ EXTRACTION_RULES = """
 - requires_basic_recipient: 기초생활수급자 전용 여부
 - requires_disability: 장애인 전용 여부
 - requires_veteran: 보훈대상자 필수 여부 (참전유공자·국가유공자·독립유공자)
+- category: 서비스 카테고리 (하나만 선택)
+    "medical"  → 의료비·건강검진·치료·투약·보청기·안경·개안수술
+    "care"     → 돌봄·요양·방문요양·집안일·식사지원·목욕·일상생활 지원
+    "living"   → 생활비·통신비·이동전화요금·냉난방비·식품·문화·여가·교육
+    "housing"  → 주거·임대·집수리·주택개조
+    "finance"  → 연금·수당·현금지원·바우처·생계급여
+    "mobility" → 교통비·버스요금·차량지원·이동도우미·병원동행 (※이동통신/전화요금은 living)
+    ※ 이동전화·통신비는 반드시 "living"으로 분류
 - service_tags: 서비스 성격 태그 배열 (해당하는 것 모두 포함)
     "dementia"   → 치매 관련 서비스
     "mobility"   → 이동지원·병원동행·교통지원
@@ -778,6 +786,7 @@ def run_phase2(supabase) -> int:
                 parse_err += 1
             else:
                 supabase.table("welfare_services").update({
+                    "category": criteria.get("category", "living"),
                     "min_age": criteria.get("min_age"),
                     "max_income_level": criteria.get("max_income_level", 10),
                     "requires_ltc_grade": criteria.get("requires_ltc_grade", False),

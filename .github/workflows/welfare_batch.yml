@@ -7,13 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       phase:
-        description: '실행할 Phase (0=목록수집, 0_detail=상세수집, 1=복지로API, 2=AI분류, both=전체)'
+        description: '실행할 Phase (0=지자체목록, 0_national=중앙부처목록, 0_detail=상세수집, 1=복지로API, 2=AI분류, both=전체)'
         required: false
         default: 'both'
         type: choice
         options:
           - both
           - '0'
+          - '0_national'
           - '0_detail'
           - '1'
           - '2'
@@ -51,6 +52,16 @@ jobs:
           WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
           LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
         run: python batch/welfare_ai_processor.py --phase 0
+
+      # Phase 0 National → 수동 '0_national' 선택할 때만
+      - name: Phase 0 National - 중앙부처복지서비스 목록 수집
+        if: ${{ inputs.phase == '0_national' }}
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
+          LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
+        run: python batch/welfare_ai_processor.py --phase 0_national
 
       # Phase 0 Detail → 매일 자동 + 수동 '0_detail' 선택
       - name: Phase 0 Detail - 지자체복지서비스 상세 수집

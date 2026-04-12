@@ -73,7 +73,7 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
           // ── 헤더 배지 ──────────────────────────────────
           Wrap(spacing: 8, runSpacing: 6, children: [
             _badge(service.categoryLabel, categoryColor),
-            if (tier == 1) _badge('✓ 즉시 신청 가능', Colors.green),
+            if (tier == 1) _badge('✓ 우선 확인', Colors.green),
             if (tier == 2) _badge('★ 등급 후 신청 가능', const Color(0xFFF57C00)),
             if (service.isDeadlineSoon)
               _badge('D-${service.deadline!.difference(DateTime.now()).inDays} 마감 임박', AppTheme.warning),

@@ -658,23 +658,40 @@ EXTRACTION_RULES = """
     4. 전국 단위 서비스이거나 판단 불가 → "전국"
     ※ 시도명 형식: "서울" "경기" "부산" 등 짧은 형태 사용
 - confidence: 추출 확신도 0.0~1.0
-- summary: 이 서비스가 누구를 위한 것이고 어떤 혜택을 주는지를 중학생도 이해할 수 있는 말로 2~3문장으로 요약
-    예: "소득이 적은 65세 이상 어르신께 매달 일정 금액을 드리는 제도예요. 기초생활수급자나 차상위계층 어르신이라면 신청해 볼 만해요."
-    예: "65세 이상 어르신의 집을 고쳐주는 서비스예요. 방수·단열·난방 등 꼭 필요한 부분을 무료 또는 저가로 수리해 드려요."
+- summary: 40~50대 자녀가 부모님께 설명하고 바로 신청할 수 있도록 다음 내용을 포함해 2~4문장으로 작성
+    ① 누가 받을 수 있는지 (나이·소득·거주지·상황 조건을 구체적으로)
+    ② 어떤 혜택을 받는지 (금액·서비스 내용을 구체적으로, 금액은 숫자로 명시)
+    ③ 어떻게 신청하는지 (방문/온라인/전화 등 간략히)
     ※ 존댓말로 작성, 전문용어 대신 쉬운 표현 사용
+    예: "만 65세 이상 기초생활수급자 어르신께 매달 이·미용 서비스 바우처 3만원을 드리는 사업이에요.
+         소득이 적은 홀몸 어르신이라면 신청해볼 만해요. 읍면동 주민센터에 방문해서 신청하시면 돼요."
+    예: "부산에 사시는 65세 이상 어르신 중 소득 하위 70% 이하라면 냉·난방비를 최대 연 30만원 지원받을 수 있어요.
+         부산시청 복지과나 가까운 주민센터에 문의하시면 돼요."
 """
 
 
 def make_prompt(svc: dict) -> str:
-    detail = (svc.get("detail_content") or "")[:600]
     region_hint = svc.get("region") or ""
+    raw = (svc.get("raw_content") or "").strip()
+    target = (svc.get("target_info") or "").strip()
+    benefit = (svc.get("benefit_info") or "").strip()
+    detail = (svc.get("detail_content") or "").strip()
+
+    # raw_content 우선 사용 (선정기준·신청방법 등 전체 포함), 없으면 개별 필드 조합
+    if raw:
+        content_block = f"원문 전체:\n{raw[:2000]}"
+    else:
+        parts = []
+        if target: parts.append(f"지원대상: {target[:500]}")
+        if benefit: parts.append(f"지원내용: {benefit[:300]}")
+        if detail: parts.append(f"상세내용: {detail[:600]}")
+        content_block = "\n".join(parts)
+
     return f"""당신은 한국 복지 서비스 자격 조건 분석 전문가입니다. 반드시 JSON만 응답하세요.
 
 서비스명: {svc.get('name', '')}
 지역: {region_hint if region_hint else '(미확인 - 내용에서 추출)'}
-지원대상: {(svc.get('target_info') or '')[:500]}
-지원내용: {(svc.get('benefit_info') or '')[:300]}
-상세내용: {detail}
+{content_block}
 
 다음 JSON 형식으로만 응답:
 {{
@@ -725,7 +742,7 @@ def run_phase2(supabase) -> int:
 
     result = (
         supabase.table("welfare_services")
-        .select("id, name, target_info, benefit_info, detail_content, region")
+        .select("id, name, target_info, benefit_info, detail_content, raw_content, region")
         .is_("filter_updated_at", "null")
         .limit(1000)
         .execute()

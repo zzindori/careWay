@@ -158,60 +158,9 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
                     : _pendingText(),
           ),
 
-          // ── 상세 안내 ──────────────────────────────────
+          // ── 원문 안내 ──────────────────────────────────
           const SizedBox(height: 12),
-          if (service.aiSummary.isNotEmpty && service.detailContent.isNotEmpty)
-            // AI 요약 있을 때: 원문은 접기/펼치기
-            Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.divider),
-              ),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                InkWell(
-                  onTap: () => setState(() => _detailExpanded = !_detailExpanded),
-                  borderRadius: BorderRadius.circular(12),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(children: [
-                      const Icon(Icons.article_outlined, size: 16, color: AppTheme.primary),
-                      const SizedBox(width: 6),
-                      const Expanded(
-                        child: Text('원문 안내',
-                            style: TextStyle(
-                                fontSize: 12,
-                                color: AppTheme.textSecondary,
-                                fontWeight: FontWeight.w600)),
-                      ),
-                      Icon(
-                        _detailExpanded ? Icons.expand_less : Icons.expand_more,
-                        size: 18,
-                        color: AppTheme.textSecondary,
-                      ),
-                    ]),
-                  ),
-                ),
-                if (_detailExpanded)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                    child: Text(service.detailContent,
-                        style: const TextStyle(
-                            fontSize: 14, color: AppTheme.textPrimary, height: 1.6)),
-                  ),
-              ]),
-            )
-          else
-            _section(
-              title: '상세 안내',
-              icon: Icons.article_outlined,
-              child: service.detailContent.isNotEmpty
-                  ? Text(service.detailContent,
-                      style: const TextStyle(
-                          fontSize: 14, color: AppTheme.textPrimary, height: 1.6))
-                  : _pendingText(),
-            ),
+          _buildRawContentCard(service),
 
           // ── 문의처 ─────────────────────────────────────
           const SizedBox(height: 12),
@@ -239,6 +188,128 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
           const SizedBox(height: 24),
         ],
       ),
+    );
+  }
+
+  // ─── 원문 안내 카드 ─────────────────────────────────────────
+
+  static const _sectionIcons = <String, IconData>{
+    '서비스 개요': Icons.info_outline,
+    '지원 대상': Icons.group_outlined,
+    '선정 기준': Icons.rule_outlined,
+    '지원 혜택': Icons.card_giftcard_outlined,
+    '신청 방법': Icons.how_to_reg_outlined,
+    '문의처': Icons.phone_outlined,
+  };
+
+  static const _sectionColors = <String, Color>{
+    '서비스 개요': Color(0xFF1565C0),
+    '지원 대상': Color(0xFF2E7D32),
+    '선정 기준': Color(0xFF6A1B9A),
+    '지원 혜택': Color(0xFFE65100),
+    '신청 방법': Color(0xFF00695C),
+    '문의처': Color(0xFF37474F),
+  };
+
+  List<MapEntry<String, String>> _parseRawSections(String raw) {
+    final sections = <MapEntry<String, String>>[];
+    final pattern = RegExp(r'\[([^\]]+)\]\n([\s\S]*?)(?=\n\n\[|$)');
+    for (final m in pattern.allMatches(raw)) {
+      final label = m.group(1)!.trim();
+      final content = m.group(2)!.trim();
+      if (content.isNotEmpty) sections.add(MapEntry(label, content));
+    }
+    return sections;
+  }
+
+  Widget _buildRawContentCard(WelfareService service) {
+    final hasRaw = service.rawContent.isNotEmpty;
+    final hasDetail = service.detailContent.isNotEmpty;
+    if (!hasRaw && !hasDetail) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.divider),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // 헤더 (탭으로 접기/펼치기)
+        InkWell(
+          onTap: () => setState(() => _detailExpanded = !_detailExpanded),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(children: [
+              const Icon(Icons.article_outlined, size: 16, color: AppTheme.primary),
+              const SizedBox(width: 6),
+              const Expanded(
+                child: Text('원문 전체 보기',
+                    style: TextStyle(
+                        fontSize: 13,
+                        color: AppTheme.textSecondary,
+                        fontWeight: FontWeight.w600)),
+              ),
+              Icon(
+                _detailExpanded ? Icons.expand_less : Icons.expand_more,
+                size: 18,
+                color: AppTheme.textSecondary,
+              ),
+            ]),
+          ),
+        ),
+
+        // 펼쳐졌을 때 내용
+        if (_detailExpanded) ...[
+          const Divider(height: 1, color: AppTheme.divider),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: hasRaw
+                ? _buildParsedSections(_parseRawSections(service.rawContent))
+                : Text(service.detailContent,
+                    style: const TextStyle(
+                        fontSize: 14, color: AppTheme.textPrimary, height: 1.6)),
+          ),
+        ],
+      ]),
+    );
+  }
+
+  Widget _buildParsedSections(List<MapEntry<String, String>> sections) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: sections.asMap().entries.map((entry) {
+        final idx = entry.key;
+        final label = entry.value.key;
+        final content = entry.value.value;
+        final color = _sectionColors[label] ?? AppTheme.primary;
+        final icon = _sectionIcons[label] ?? Icons.chevron_right;
+
+        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (idx > 0)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 14),
+              child: Divider(height: 1, color: Color(0xFFEEEEEE)),
+            ),
+          // 섹션 레이블
+          Row(children: [
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 5),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 11,
+                    color: color,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.3)),
+          ]),
+          const SizedBox(height: 7),
+          // 섹션 내용
+          Text(content,
+              style: const TextStyle(
+                  fontSize: 14, color: AppTheme.textPrimary, height: 1.65)),
+        ]);
+      }).toList(),
     );
   }
 

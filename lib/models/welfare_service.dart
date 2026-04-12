@@ -33,6 +33,7 @@ class WelfareService {
   final List<Map<String, String>> applmetList;
   final String inqPlace;
   final String detailContent;
+  final String rawContent;  // 원문 전체 (레이블 포함 구조화된 텍스트)
   final String aiSummary;   // Gemini AI 요약
 
   const WelfareService({
@@ -62,6 +63,7 @@ class WelfareService {
     this.applmetList = const [],
     this.inqPlace = '',
     this.detailContent = '',
+    this.rawContent = '',
     this.aiSummary = '',
   });
 
@@ -318,6 +320,7 @@ class WelfareService {
           [],
       inqPlace: json['inq_place'] as String? ?? '',
       detailContent: json['detail_content'] as String? ?? '',
+      rawContent: json['raw_content'] as String? ?? '',
       aiSummary: json['ai_summary'] as String? ?? '',
     );
   }

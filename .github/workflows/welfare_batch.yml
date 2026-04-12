@@ -44,7 +44,7 @@ jobs:
 
       # Phase 0 목록 수집 → 매일 자동 + 수동 '0' 선택
       - name: Phase 0 - 지자체복지서비스 목록 수집
-        if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == '0' }}
+        if: ${{ inputs.phase == '0' }}
         env:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

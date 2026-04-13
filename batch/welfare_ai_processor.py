@@ -77,6 +77,7 @@ DETAIL_API_RETRY_BASE_DELAY = 1.5
 AI_MIN_CONTENT_LENGTH = 40
 AI_SKIP_CONFIDENCE_THRESHOLD = 0.85
 CHECKPOINT_FILE = os.path.join(os.path.dirname(__file__), ".welfare_batch_checkpoint.json")
+_SUB_REGION_COLUMN_AVAILABLE: bool | None = None
 
 SOCIAL_CATEGORY_SERVICE_TYPE = {
     "care": "BA",
@@ -114,6 +115,35 @@ def normalize_region(r: str) -> str:
     if "경남" in r or "경상남" in r: return "경남"
     if "제주" in r: return "제주"
     return r
+
+
+def _is_missing_sub_region_column_error(err: Exception) -> bool:
+    msg = str(err).lower()
+    return "sub_region" in msg and ("column" in msg or "schema cache" in msg)
+
+
+def _update_welfare_service(supabase, service_id: int, payload: dict):
+    """
+    `sub_region` 컬럼이 아직 없는 환경에서도 배치가 중단되지 않도록
+    1회 자동 폴백(키 제거 후 재시도) 처리.
+    """
+    global _SUB_REGION_COLUMN_AVAILABLE
+
+    if _SUB_REGION_COLUMN_AVAILABLE is False and "sub_region" in payload:
+        payload = {k: v for k, v in payload.items() if k != "sub_region"}
+
+    try:
+        supabase.table("welfare_services").update(payload).eq("id", service_id).execute()
+        if "sub_region" in payload:
+            _SUB_REGION_COLUMN_AVAILABLE = True
+        return
+    except Exception as e:
+        if "sub_region" in payload and _is_missing_sub_region_column_error(e):
+            _SUB_REGION_COLUMN_AVAILABLE = False
+            fallback = {k: v for k, v in payload.items() if k != "sub_region"}
+            supabase.table("welfare_services").update(fallback).eq("id", service_id).execute()
+            return
+        raise
 
 
 # ── 환경변수 체크 ──────────────────────────────────────────────────────────────
@@ -589,6 +619,19 @@ def run_phase0_detail(supabase) -> int:
                     else:
                         time.sleep(WEB_SCRAPE_DELAY * 3)
                 else:
+                    source_text = "\n".join(
+                        filter(
+                            None,
+                            [
+                                data.get("raw_content", ""),
+                                data.get("detail_content", ""),
+                                data.get("apply_place", ""),
+                            ],
+                        )
+                    )
+                    inferred_region = infer_region(source_text)
+                    base_region = inferred_region or ""
+                    inferred_sub_region = infer_sub_region(source_text, base_region)
                     update = {
                         "target_info": data["target_info"],
                         "benefit_info": data["benefit_info"],
@@ -596,9 +639,10 @@ def run_phase0_detail(supabase) -> int:
                         "detail_content": data["detail_content"] or svc.get("description", ""),
                         "inq_place": data["inq_place"],
                         "raw_content": data["raw_content"],
+                        "sub_region": inferred_sub_region or "",
                         "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
                     }
-                    supabase.table("welfare_services").update(update).eq("id", svc["id"]).execute()
+                    _update_welfare_service(supabase, svc["id"], update)
                     t = len(update["target_info"])
                     b = len(update["benefit_info"])
                     d = len(update["detail_content"])
@@ -746,7 +790,7 @@ def run_phase1(supabase) -> int:
     # 1차: 아직 한번도 수집 안 한 것
     result = (
         supabase.table("welfare_services")
-        .select("id, name, online_url, target_info, benefit_info, apply_place")
+        .select("id, name, online_url, target_info, benefit_info, apply_place, region")
         .eq("source", "national")
         .is_("detail_fetched_at", "null")
         .execute()
@@ -754,7 +798,7 @@ def run_phase1(supabase) -> int:
     # 2차: 수집했지만 raw_content 비어있는 것 (재수집)
     result2 = (
         supabase.table("welfare_services")
-        .select("id, name, online_url, target_info, benefit_info, apply_place")
+        .select("id, name, online_url, target_info, benefit_info, apply_place, region")
         .eq("source", "national")
         .not_.is_("detail_fetched_at", "null")
         .eq("raw_content", "")
@@ -794,7 +838,11 @@ def run_phase1(supabase) -> int:
             target_info = detail.get("target_info") or svc.get("target_info") or ""
             benefit_info = detail.get("benefit_info") or svc.get("benefit_info") or ""
             apply_place = detail.get("apply_place") or svc.get("apply_place") or ""
-            supabase.table("welfare_services").update({
+            sub_region = infer_sub_region(
+                "\n".join(filter(None, [detail.get("raw_content", ""), detail.get("detail_content", ""), apply_place])),
+                svc.get("region") or "",
+            )
+            _update_welfare_service(supabase, svc["id"], {
                 "applmet_list": detail["applmet_list"],
                 "inq_place": detail["inq_place"],
                 "detail_content": detail["detail_content"],
@@ -802,8 +850,9 @@ def run_phase1(supabase) -> int:
                 "benefit_info": benefit_info,
                 "apply_place": apply_place,
                 "raw_content": detail.get("raw_content", ""),
+                "sub_region": sub_region or "",
                 "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
-            }).eq("id", svc["id"]).execute()
+            })
             print("✓")
             ok += 1
 
@@ -818,7 +867,7 @@ def run_phase1_lite(supabase, limit: int = 250) -> int:
     print("\n━━━ PHASE 1-lite: 상세 누락 보강 ━━━")
     result = (
         supabase.table("welfare_services")
-        .select("id, name, online_url, target_info, benefit_info, apply_place, detail_content, raw_content")
+        .select("id, name, online_url, target_info, benefit_info, apply_place, detail_content, raw_content, region")
         .eq("source", "national")
         .not_.is_("online_url", "null")
         .or_("detail_content.eq.,raw_content.eq.")
@@ -845,7 +894,21 @@ def run_phase1_lite(supabase, limit: int = 250) -> int:
             if detail == "QUOTA_EXCEEDED":
                 break
         else:
-            supabase.table("welfare_services").update({
+            sub_region = infer_sub_region(
+                "\n".join(
+                    filter(
+                        None,
+                        [
+                            detail.get("raw_content", ""),
+                            detail.get("detail_content", ""),
+                            detail.get("apply_place", ""),
+                            svc.get("apply_place", ""),
+                        ],
+                    )
+                ),
+                svc.get("region") or "",
+            )
+            _update_welfare_service(supabase, svc["id"], {
                 "applmet_list": detail["applmet_list"],
                 "inq_place": detail["inq_place"],
                 "detail_content": detail["detail_content"] or (svc.get("detail_content") or ""),
@@ -853,8 +916,9 @@ def run_phase1_lite(supabase, limit: int = 250) -> int:
                 "benefit_info": detail.get("benefit_info") or (svc.get("benefit_info") or ""),
                 "apply_place": detail.get("apply_place") or (svc.get("apply_place") or ""),
                 "raw_content": detail.get("raw_content") or (svc.get("raw_content") or ""),
+                "sub_region": sub_region or "",
                 "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
-            }).eq("id", svc["id"]).execute()
+            })
             print("✓")
             ok += 1
         time.sleep(API_REQUEST_DELAY)
@@ -1309,6 +1373,53 @@ def infer_region(text: str) -> str | None:
             return region
     return None
 
+
+_SUB_REGION_BY_REGION = {
+    "서울": ["종로구", "중구", "용산구", "성동구", "광진구", "동대문구", "중랑구", "성북구", "강북구", "도봉구", "노원구", "은평구", "서대문구", "마포구", "양천구", "강서구", "구로구", "금천구", "영등포구", "동작구", "관악구", "서초구", "강남구", "송파구", "강동구"],
+    "부산": ["중구", "서구", "동구", "영도구", "부산진구", "동래구", "남구", "북구", "해운대구", "사하구", "금정구", "강서구", "연제구", "수영구", "사상구", "기장군"],
+    "대구": ["중구", "동구", "서구", "남구", "북구", "수성구", "달서구", "달성군", "군위군"],
+    "인천": ["중구", "동구", "미추홀구", "연수구", "남동구", "부평구", "계양구", "서구", "강화군", "옹진군"],
+    "광주": ["동구", "서구", "남구", "북구", "광산구"],
+    "대전": ["동구", "중구", "서구", "유성구", "대덕구"],
+    "울산": ["중구", "남구", "동구", "북구", "울주군"],
+    "세종": ["세종시"],
+    "경기": ["수원시", "성남시", "의정부시", "안양시", "부천시", "광명시", "평택시", "동두천시", "안산시", "고양시", "과천시", "구리시", "남양주시", "오산시", "시흥시", "군포시", "의왕시", "하남시", "용인시", "파주시", "이천시", "안성시", "김포시", "화성시", "광주시", "양주시", "포천시", "여주시", "연천군", "가평군", "양평군"],
+    "강원": ["춘천시", "원주시", "강릉시", "동해시", "태백시", "속초시", "삼척시", "홍천군", "횡성군", "영월군", "평창군", "정선군", "철원군", "화천군", "양구군", "인제군", "고성군", "양양군"],
+    "충북": ["청주시", "충주시", "제천시", "보은군", "옥천군", "영동군", "증평군", "진천군", "괴산군", "음성군", "단양군"],
+    "충남": ["천안시", "공주시", "보령시", "아산시", "서산시", "논산시", "계룡시", "당진시", "금산군", "부여군", "서천군", "청양군", "홍성군", "예산군", "태안군"],
+    "전북": ["전주시", "군산시", "익산시", "정읍시", "남원시", "김제시", "완주군", "진안군", "무주군", "장수군", "임실군", "순창군", "고창군", "부안군"],
+    "전남": ["목포시", "여수시", "순천시", "나주시", "광양시", "담양군", "곡성군", "구례군", "고흥군", "보성군", "화순군", "장흥군", "강진군", "해남군", "영암군", "무안군", "함평군", "영광군", "장성군", "완도군", "진도군", "신안군"],
+    "경북": ["포항시", "경주시", "김천시", "안동시", "구미시", "영주시", "영천시", "상주시", "문경시", "경산시", "군위군", "의성군", "청송군", "영양군", "영덕군", "청도군", "고령군", "성주군", "칠곡군", "예천군", "봉화군", "울진군", "울릉군"],
+    "경남": ["창원시", "진주시", "통영시", "사천시", "김해시", "밀양시", "거제시", "양산시", "의령군", "함안군", "창녕군", "남해군", "하동군", "산청군", "함양군", "거창군", "합천군"],
+    "제주": ["제주시", "서귀포시"],
+}
+
+
+def infer_sub_region(text: str, region_hint: str | None = None) -> str | None:
+    if not text:
+        return None
+    norm = re.sub(r"\s+", " ", text)
+
+    # 후보를 먼저 추출하고(시/군/구/특별자치시), 지역 힌트 기준으로 검증
+    candidates = re.findall(r"[가-힣]{2,12}(?:시|군|구|특별자치시)", norm)
+    if not candidates:
+        return None
+
+    hint = normalize_region(region_hint or "") if region_hint else ""
+    if hint and hint in _SUB_REGION_BY_REGION:
+        allowed = _SUB_REGION_BY_REGION[hint]
+        for c in candidates:
+            if c in allowed:
+                return c
+        return None
+
+    # 힌트가 없으면 전체 목록에서 첫 매칭 사용
+    for region, names in _SUB_REGION_BY_REGION.items():
+        for c in candidates:
+            if c in names:
+                return c
+    return None
+
 # ── cmmCdNm 코드 기반 규칙 분류 ──────────────────────────────────────────────
 
 # 생애주기 코드 → target_age_group
@@ -1381,7 +1492,7 @@ def run_fix_region(supabase) -> int:
     print("\n━━━ FIX REGION: 지자체 서비스 지역 후처리 ━━━")
     result = (
         supabase.table("welfare_services")
-        .select("id, name, target_info, description, apply_place, detail_content, region, raw_content")
+        .select("id, name, target_info, description, apply_place, detail_content, region, sub_region, raw_content")
         .eq("source", "local")
         .eq("region", "전국")
         .execute()
@@ -1397,14 +1508,17 @@ def run_fix_region(supabase) -> int:
         dept_match = re.search(r'\[bizChrDeptNm\]\s*(.+)', raw)
 
         inferred = None
+        source_for_sub_region = ""
 
         # 1순위: [addr] 태그
         if addr_match:
-            inferred = infer_region(addr_match.group(1).strip())
+            source_for_sub_region = addr_match.group(1).strip()
+            inferred = infer_region(source_for_sub_region)
 
         # 2순위: [bizChrDeptNm] 태그
         if not inferred and dept_match:
-            inferred = infer_region(dept_match.group(1).strip())
+            source_for_sub_region = dept_match.group(1).strip()
+            inferred = infer_region(source_for_sub_region)
 
         # 3순위: 기존 텍스트 검색
         if not inferred:
@@ -1415,12 +1529,19 @@ def run_fix_region(supabase) -> int:
                 svc.get("apply_place", ""),
                 svc.get("detail_content", ""),
             ]))
+            source_for_sub_region = text
             inferred = infer_region(text)
 
         if inferred:
-            supabase.table("welfare_services").update(
-                {"region": inferred}
-            ).eq("id", svc["id"]).execute()
+            inferred_sub_region = infer_sub_region(source_for_sub_region, inferred)
+            _update_welfare_service(
+                supabase,
+                svc["id"],
+                {
+                    "region": inferred,
+                    "sub_region": inferred_sub_region or "",
+                },
+            )
             updated += 1
         else:
             skipped += 1

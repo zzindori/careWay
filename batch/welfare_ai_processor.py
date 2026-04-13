@@ -1092,7 +1092,6 @@ def run_fix_region(supabase) -> int:
             skipped += 1
 
     print(f"  수정: {updated}개 / 추론 불가(유지): {skipped}개")
-    return updateddated}개 / 추론 불가(유지): {skipped}개")
     return updated
 
 # ════════════════════════════════════════════════════════════════════════════════

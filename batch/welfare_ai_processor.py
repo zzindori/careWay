@@ -43,6 +43,7 @@ import sys
 import json
 import time
 import re
+import hashlib
 import requests
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -57,6 +58,7 @@ SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 WELFARE_API_KEY = os.environ.get("WELFARE_API_KEY", "")
 LOCAL_WELFARE_API_KEY = os.environ.get("LOCAL_WELFARE_API_KEY", "")
+SOCIAL_SERVICE_API_KEY = os.environ.get("SOCIAL_SERVICE_API_KEY", "")
 
 WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/NationalWelfareInformationsV001/NationalWelfaredetailedV001"
 
@@ -64,11 +66,29 @@ WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/NationalWelfareInformation
 LOCAL_WELFARE_LIST_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfarelist"
 LOCAL_WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfaredetailed"  # 사용 안 함 (웹 스크래핑으로 대체)
 BOKJIRO_WEB_URL = "https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52011M.do"
+SOCIAL_SERVICE_PROVIDER_URL = "https://api.socialservice.or.kr:444/api/service/provider/providerList"
 
 MODEL = "gemini-2.0-flash"
 API_REQUEST_DELAY = 1.2    # 복지로 API rate limit 방지 (개발계정 100 RPM → 최소 0.6초, 여유분 포함)
 WEB_SCRAPE_DELAY = 0.5     # 복지로 웹 스크래핑 딜레이 (API 한도 없음, 서버 부하 방지 목적)
 GEMINI_DELAY = 4.5         # Gemini 무료 티어: 15 RPM → 4초 간격
+MAX_DETAIL_API_RETRIES = 3
+DETAIL_API_RETRY_BASE_DELAY = 1.5
+AI_MIN_CONTENT_LENGTH = 40
+AI_SKIP_CONFIDENCE_THRESHOLD = 0.85
+CHECKPOINT_FILE = os.path.join(os.path.dirname(__file__), ".welfare_batch_checkpoint.json")
+
+SOCIAL_CATEGORY_SERVICE_TYPE = {
+    "care": "BA",
+    "living": "BC",
+    "medical": "BD",
+    "housing": "BE",
+}
+
+SIDO_REGIONS = [
+    "서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종",
+    "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주",
+]
 
 # ── 환경변수 체크 ──────────────────────────────────────────────────────────────
 
@@ -98,17 +118,66 @@ def normalize_region(r: str) -> str:
 
 # ── 환경변수 체크 ──────────────────────────────────────────────────────────────
 
-def validate_env():
+def validate_env(phase=None):
     missing = []
     if not SUPABASE_SERVICE_KEY:
         missing.append("SUPABASE_SERVICE_KEY")
-    if not GEMINI_API_KEY:
-        missing.append("GEMINI_API_KEY")
-    if not WELFARE_API_KEY:
-        missing.append("WELFARE_API_KEY")
+    if phase in (None, "1", "1_lite"):
+        if not WELFARE_API_KEY:
+            missing.append("WELFARE_API_KEY")
+    if phase in (None, "2", "2r"):
+        if not GEMINI_API_KEY:
+            missing.append("GEMINI_API_KEY")
+    if phase == "providers":
+        if not SOCIAL_SERVICE_API_KEY:
+            missing.append("SOCIAL_SERVICE_API_KEY")
     if missing:
         print(f"❌ 환경변수 미설정: {', '.join(missing)}")
         sys.exit(1)
+
+
+def _load_checkpoint() -> dict:
+    try:
+        if not os.path.exists(CHECKPOINT_FILE):
+            return {}
+        with open(CHECKPOINT_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_checkpoint(data: dict):
+    try:
+        with open(CHECKPOINT_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _checkpoint_get_start_index(phase_name: str) -> int:
+    cp = _load_checkpoint()
+    entry = cp.get(phase_name, {})
+    if not isinstance(entry, dict):
+        return 0
+    idx = entry.get("next_index", 0)
+    return idx if isinstance(idx, int) and idx >= 0 else 0
+
+
+def _checkpoint_set_index(phase_name: str, next_index: int):
+    cp = _load_checkpoint()
+    cp[phase_name] = {
+        "next_index": max(0, int(next_index)),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _save_checkpoint(cp)
+
+
+def _checkpoint_clear(phase_name: str):
+    cp = _load_checkpoint()
+    if phase_name in cp:
+        del cp[phase_name]
+        _save_checkpoint(cp)
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -214,6 +283,7 @@ def run_phase0(supabase) -> int:
                     "requires_ltc_grade": False,
                     "requires_alone": False,
                     "requires_basic_recipient": False,
+                    "gender": "any",
                     "target_age_group": "unknown",
                     "region": it.get("region", ""),
                     "source": "local",
@@ -233,6 +303,84 @@ def run_phase0(supabase) -> int:
 
     print(f"\n  Phase 0 완료: 신규 등록={total_new}, 중복 스킵={total_skip}")
     return total_new
+
+
+def _provider_uid(category: str, region: str, name: str, address: str, phone: str) -> str:
+    key = f"{category}|{region}|{name}|{address}|{phone}"
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:32]
+
+
+def fetch_social_providers(category: str, region: str, page_size: int = 200) -> list[dict]:
+    service_type = SOCIAL_CATEGORY_SERVICE_TYPE.get(category)
+    if not service_type or not SOCIAL_SERVICE_API_KEY:
+        return []
+    try:
+        resp = requests.get(
+            SOCIAL_SERVICE_PROVIDER_URL,
+            params={
+                "serviceType": service_type,
+                "sigunguNm": region,
+                "searchIdx": 0,
+                "pageSize": page_size,
+                "serviceKey": SOCIAL_SERVICE_API_KEY,
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        root = ET.fromstring(resp.text)
+
+        items = []
+        for item in root.findall(".//item"):
+            def txt(tag: str) -> str:
+                el = item.find(tag)
+                return (el.text or "").strip() if el is not None else ""
+
+            name = txt("provNm")
+            addr = txt("addr")
+            phone = txt("telNo")
+            if not name:
+                continue
+            items.append({
+                "provider_uid": _provider_uid(category, region, name, addr, phone),
+                "name": name,
+                "address": addr,
+                "phone": phone,
+                "category": category,
+                "region": region,
+                "source": "socialservice",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            })
+        return items
+    except Exception as e:
+        print(f"    제공기관 조회 오류 ({category}/{region}): {e}")
+        return []
+
+
+def run_phase_providers(supabase) -> int:
+    print("\n━━━ PHASE P: 사회서비스 제공기관 수집 ━━━")
+    if not SOCIAL_SERVICE_API_KEY:
+        print("  ⚠ SOCIAL_SERVICE_API_KEY 미설정 → 스킵")
+        return 0
+
+    total_upsert = 0
+    for category in SOCIAL_CATEGORY_SERVICE_TYPE.keys():
+        for region in SIDO_REGIONS:
+            providers = fetch_social_providers(category, region)
+            if not providers:
+                continue
+            try:
+                supabase.table("service_providers").upsert(
+                    providers,
+                    on_conflict="provider_uid",
+                ).execute()
+                total_upsert += len(providers)
+                print(f"  ✓ {category}/{region}: {len(providers)}건")
+            except Exception as e:
+                print(f"  ❌ 저장 실패 ({category}/{region}): {e}")
+            time.sleep(0.2)
+
+    print(f"  Phase P 완료: upsert={total_upsert}")
+    return total_upsert
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -510,12 +658,17 @@ def fetch_welfare_detail(welfare_id: str) -> dict | None:
         "servId": welfare_id,
         "callTp": "D",
     }
-    for attempt in range(3):
+    for attempt in range(1, MAX_DETAIL_API_RETRIES + 1):
         try:
             resp = requests.get(WELFARE_DETAIL_URL, params=params, timeout=10)
             if resp.status_code == 429:
                 print(f"\n      ⚠ 429 → 일일 한도 초과, 스킵")
-                return "QUOTA_EXCEEDED" 
+                return "QUOTA_EXCEEDED"
+            if 500 <= resp.status_code < 600:
+                raise requests.HTTPError(f"서버 오류 {resp.status_code}")
+            if 400 <= resp.status_code < 500:
+                print(f"      API 클라이언트 오류 ({welfare_id}): HTTP {resp.status_code}")
+                return None
             resp.raise_for_status()
 
             root = ET.fromstring(resp.text)
@@ -531,21 +684,53 @@ def fetch_welfare_detail(welfare_id: str) -> dict | None:
                 if method:
                     applmet_list.append({"method": method, "description": desc})
 
+            target_info = txt("trgtList")
+            benefit_info = txt("givBnfScpCn") or txt("servDgst")
+            apply_place = txt("aplyMtd")
+            criteria = txt("slctCritCn")
+            biz_summary = txt("bsnsSumry")
+            detail_link = txt("servDtlLink")
+            inq_place = txt("inqplCn")
+
             detail_parts = []
-            for tag in ["trgtList", "aplyMtd", "servDgst", "bsnsSumry", "servDtlLink"]:
-                val = txt(tag)
+            for val in [target_info, apply_place, benefit_info, criteria, biz_summary, detail_link]:
                 if val:
                     detail_parts.append(val)
 
+            raw_parts = []
+            if target_info:
+                raw_parts.append(f"[지원 대상]\n{target_info}")
+            if criteria:
+                raw_parts.append(f"[선정 기준]\n{criteria}")
+            if benefit_info:
+                raw_parts.append(f"[지원 혜택]\n{benefit_info}")
+            if apply_place:
+                raw_parts.append(f"[신청 방법]\n{apply_place}")
+            if inq_place:
+                raw_parts.append(f"[문의처]\n{inq_place}")
+            if biz_summary:
+                raw_parts.append(f"[사업 요약]\n{biz_summary}")
+            if detail_link:
+                raw_parts.append(f"[상세 링크]\n{detail_link}")
+            raw_content = "\n\n".join(raw_parts)
+
             return {
                 "applmet_list": applmet_list,
-                "inq_place": txt("inqplCn"),
+                "inq_place": inq_place,
                 "detail_content": "\n".join(detail_parts),
+                "target_info": target_info,
+                "benefit_info": benefit_info,
+                "apply_place": apply_place,
+                "raw_content": raw_content,
             }
 
-        except Exception as e:
-            print(f"      API 오류 ({welfare_id}): {e}")
-            return None
+        except (requests.RequestException, ET.ParseError) as e:
+            if attempt == MAX_DETAIL_API_RETRIES:
+                print(f"      API 오류 ({welfare_id}): {e}")
+                return None
+            backoff = DETAIL_API_RETRY_BASE_DELAY * attempt
+            print(f"      재시도 {attempt}/{MAX_DETAIL_API_RETRIES} ({welfare_id}): {e}")
+            time.sleep(backoff)
 
     return None
 
@@ -561,7 +746,7 @@ def run_phase1(supabase) -> int:
     # 1차: 아직 한번도 수집 안 한 것
     result = (
         supabase.table("welfare_services")
-        .select("id, name, online_url")
+        .select("id, name, online_url, target_info, benefit_info, apply_place")
         .eq("source", "national")
         .is_("detail_fetched_at", "null")
         .execute()
@@ -569,7 +754,7 @@ def run_phase1(supabase) -> int:
     # 2차: 수집했지만 raw_content 비어있는 것 (재수집)
     result2 = (
         supabase.table("welfare_services")
-        .select("id, name, online_url")
+        .select("id, name, online_url, target_info, benefit_info, apply_place")
         .eq("source", "national")
         .not_.is_("detail_fetched_at", "null")
         .eq("raw_content", "")
@@ -606,10 +791,17 @@ def run_phase1(supabase) -> int:
             print("❌ API 오류")
             fail += 1
         else:
+            target_info = detail.get("target_info") or svc.get("target_info") or ""
+            benefit_info = detail.get("benefit_info") or svc.get("benefit_info") or ""
+            apply_place = detail.get("apply_place") or svc.get("apply_place") or ""
             supabase.table("welfare_services").update({
                 "applmet_list": detail["applmet_list"],
                 "inq_place": detail["inq_place"],
                 "detail_content": detail["detail_content"],
+                "target_info": target_info,
+                "benefit_info": benefit_info,
+                "apply_place": apply_place,
+                "raw_content": detail.get("raw_content", ""),
                 "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
             }).eq("id", svc["id"]).execute()
             print("✓")
@@ -619,6 +811,55 @@ def run_phase1(supabase) -> int:
 
     print(f"\n  Phase 1 완료: 성공={ok}, 스킵={skip}, 오류={fail}")
     return ok + skip
+
+
+def run_phase1_lite(supabase, limit: int = 250) -> int:
+    """상세 빈 데이터만 빠르게 보강 (일일 순환 배치용)."""
+    print("\n━━━ PHASE 1-lite: 상세 누락 보강 ━━━")
+    result = (
+        supabase.table("welfare_services")
+        .select("id, name, online_url, target_info, benefit_info, apply_place, detail_content, raw_content")
+        .eq("source", "national")
+        .not_.is_("online_url", "null")
+        .or_("detail_content.eq.,raw_content.eq.")
+        .limit(limit)
+        .execute()
+    )
+    services = result.data or []
+    if not services:
+        print("  ✅ 보강할 누락 상세 없음")
+        return 0
+
+    print(f"  처리 대상: {len(services)}개")
+    ok = fail = 0
+    for i, svc in enumerate(services):
+        welfare_id = extract_welfare_id(svc.get("online_url"))
+        name_short = (svc.get("name") or "")[:25]
+        if not welfare_id:
+            continue
+        print(f"  [{i+1}/{len(services)}] {name_short}... ", end="", flush=True)
+        detail = fetch_welfare_detail(welfare_id)
+        if detail in (None, "QUOTA_EXCEEDED"):
+            print("⚠")
+            fail += 1
+            if detail == "QUOTA_EXCEEDED":
+                break
+        else:
+            supabase.table("welfare_services").update({
+                "applmet_list": detail["applmet_list"],
+                "inq_place": detail["inq_place"],
+                "detail_content": detail["detail_content"] or (svc.get("detail_content") or ""),
+                "target_info": detail.get("target_info") or (svc.get("target_info") or ""),
+                "benefit_info": detail.get("benefit_info") or (svc.get("benefit_info") or ""),
+                "apply_place": detail.get("apply_place") or (svc.get("apply_place") or ""),
+                "raw_content": detail.get("raw_content") or (svc.get("raw_content") or ""),
+                "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", svc["id"]).execute()
+            print("✓")
+            ok += 1
+        time.sleep(API_REQUEST_DELAY)
+    print(f"\n  Phase 1-lite 완료: 성공={ok}, 오류={fail}")
+    return ok
 
 # ════════════════════════════════════════════════════════════════════════════════
 # PHASE 2: Gemini AI 분류 → DB 저장
@@ -761,6 +1002,51 @@ def parse_json_response(text: str) -> dict | None:
     return None
 
 
+def _build_ai_input_text(svc: dict) -> str:
+    return " ".join(
+        part.strip()
+        for part in [
+            svc.get("name") or "",
+            svc.get("target_info") or "",
+            svc.get("benefit_info") or "",
+            svc.get("detail_content") or "",
+            svc.get("raw_content") or "",
+        ]
+        if isinstance(part, str) and part.strip()
+    )
+
+
+def _build_ai_input_hash(svc: dict) -> str:
+    source_text = _build_ai_input_text(svc)
+    return hashlib.sha256(source_text.encode("utf-8")).hexdigest()
+
+
+def _should_skip_ai_call(svc: dict, reclassify: bool) -> tuple[bool, str]:
+    source_text = _build_ai_input_text(svc)
+    if len(source_text) < AI_MIN_CONTENT_LENGTH:
+        return True, "입력 텍스트 부족"
+
+    if not reclassify:
+        return False, ""
+
+    ai_criteria = svc.get("ai_criteria")
+    if not isinstance(ai_criteria, dict):
+        return False, ""
+
+    prev_hash = ai_criteria.get("input_hash")
+    curr_hash = _build_ai_input_hash(svc)
+    confidence = svc.get("filter_confidence") or 0.0
+    try:
+        confidence = float(confidence)
+    except Exception:
+        confidence = 0.0
+
+    if prev_hash and prev_hash == curr_hash and confidence >= AI_SKIP_CONFIDENCE_THRESHOLD:
+        return True, f"변경 없음(conf={confidence:.2f})"
+
+    return False, ""
+
+
 def run_phase2(supabase) -> int:
     print("\n━━━ PHASE 2: Gemini AI 분류 ━━━")
 
@@ -768,24 +1054,42 @@ def run_phase2(supabase) -> int:
         supabase.table("welfare_services")
         .select("id, name, target_info, benefit_info, detail_content, raw_content, region")
         .is_("filter_updated_at", "null")
+        .order("id")
         .limit(1000)
         .execute()
     )
-    services = result.data
+    services = result.data or []
     if not services:
         print("  ✅ 모든 서비스 AI 분류 완료")
         return 0
+
+    start_index = _checkpoint_get_start_index("phase2")
+    if start_index >= len(services):
+        start_index = 0
+    if start_index > 0:
+        print(f"  체크포인트 복구: {start_index + 1}번째부터 재개")
 
     print(f"  처리 대상: {len(services)}개 (모델: {MODEL})")
     print(f"  예상 소요시간: 약 {len(services) * GEMINI_DELAY / 60:.0f}분")
 
     genai_client = google_genai.Client(api_key=GEMINI_API_KEY)
 
-    ok = fail = parse_err = 0
+    ok = fail = parse_err = skipped = 0
 
-    for i, svc in enumerate(services):
+    for i in range(start_index, len(services)):
+        svc = services[i]
         name_short = (svc.get("name") or "")[:25]
         print(f"  [{i+1}/{len(services)}] {name_short}... ", end="", flush=True)
+
+        should_skip, reason = _should_skip_ai_call(svc, reclassify=False)
+        if should_skip:
+            supabase.table("welfare_services").update({
+                "filter_updated_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", svc["id"]).execute()
+            print(f"↷ 스킵 ({reason})")
+            skipped += 1
+            _checkpoint_set_index("phase2", i + 1)
+            continue
 
         try:
             response = genai_client.models.generate_content(
@@ -797,8 +1101,12 @@ def run_phase2(supabase) -> int:
                 print("⚠ JSON 파싱 오류")
                 parse_err += 1
             else:
+                input_hash = _build_ai_input_hash(svc)
+                criteria_with_meta = dict(criteria)
+                criteria_with_meta["input_hash"] = input_hash
                 supabase.table("welfare_services").update({
                     "category": criteria.get("category", "living"),
+                    "gender": criteria.get("gender", "any"),
                     "min_age": criteria.get("min_age"),
                     "max_income_level": criteria.get("max_income_level", 10),
                     "requires_ltc_grade": criteria.get("requires_ltc_grade", False),
@@ -810,7 +1118,7 @@ def run_phase2(supabase) -> int:
                     "target_age_group": criteria.get("target_age_group", "unknown"),
                     "region": normalize_region(criteria.get("region") or svc.get("region") or "전국"),
                     "ai_summary": criteria.get("summary", ""),
-                    "ai_criteria": criteria,
+                    "ai_criteria": criteria_with_meta,
                     "filter_confidence": criteria.get("confidence", 0.0),
                     "filter_updated_at": datetime.now(timezone.utc).isoformat(),
                 }).eq("id", svc["id"]).execute()
@@ -833,9 +1141,11 @@ def run_phase2(supabase) -> int:
             print(f"❌ {e}")
             fail += 1
 
+        _checkpoint_set_index("phase2", i + 1)
         time.sleep(GEMINI_DELAY)
 
-    print(f"\n  Phase 2 완료: 성공={ok}, JSON오류={parse_err}, 기타오류={fail}")
+    _checkpoint_clear("phase2")
+    print(f"\n  Phase 2 완료: 성공={ok}, 스킵={skipped}, JSON오류={parse_err}, 기타오류={fail}")
     return ok
 
 
@@ -848,26 +1158,44 @@ def run_phase2r(supabase) -> int:
 
     result = (
         supabase.table("welfare_services")
-        .select("id, name, target_info, benefit_info, detail_content, raw_content, region")
+        .select("id, name, target_info, benefit_info, detail_content, raw_content, region, ai_criteria, filter_confidence")
         .not_.is_("filter_updated_at", "null")
         .order("filter_updated_at", desc=False)
+        .order("id")
         .limit(1000)
         .execute()
     )
-    services = result.data
+    services = result.data or []
     if not services:
         print("  ✅ 재분류할 서비스 없음")
         return 0
+
+    start_index = _checkpoint_get_start_index("phase2r")
+    if start_index >= len(services):
+        start_index = 0
+    if start_index > 0:
+        print(f"  체크포인트 복구: {start_index + 1}번째부터 재개")
 
     print(f"  처리 대상: {len(services)}개 (모델: {MODEL})")
     print(f"  예상 소요시간: 약 {len(services) * GEMINI_DELAY / 60:.0f}분")
 
     genai_client = google_genai.Client(api_key=GEMINI_API_KEY)
-    ok = fail = parse_err = 0
+    ok = fail = parse_err = skipped = 0
 
-    for i, svc in enumerate(services):
+    for i in range(start_index, len(services)):
+        svc = services[i]
         name_short = (svc.get("name") or "")[:25]
         print(f"  [{i+1}/{len(services)}] {name_short}... ", end="", flush=True)
+
+        should_skip, reason = _should_skip_ai_call(svc, reclassify=True)
+        if should_skip:
+            supabase.table("welfare_services").update({
+                "filter_updated_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", svc["id"]).execute()
+            print(f"↷ 스킵 ({reason})")
+            skipped += 1
+            _checkpoint_set_index("phase2r", i + 1)
+            continue
 
         try:
             response = genai_client.models.generate_content(
@@ -879,8 +1207,12 @@ def run_phase2r(supabase) -> int:
                 print("⚠ JSON 파싱 오류")
                 parse_err += 1
             else:
+                input_hash = _build_ai_input_hash(svc)
+                criteria_with_meta = dict(criteria)
+                criteria_with_meta["input_hash"] = input_hash
                 supabase.table("welfare_services").update({
                     "category": criteria.get("category", "living"),
+                    "gender": criteria.get("gender", "any"),
                     "min_age": criteria.get("min_age"),
                     "max_income_level": criteria.get("max_income_level", 10),
                     "requires_ltc_grade": criteria.get("requires_ltc_grade", False),
@@ -892,7 +1224,7 @@ def run_phase2r(supabase) -> int:
                     "target_age_group": criteria.get("target_age_group", "unknown"),
                     "region": normalize_region(criteria.get("region") or svc.get("region") or "전국"),
                     "ai_summary": criteria.get("summary", ""),
-                    "ai_criteria": criteria,
+                    "ai_criteria": criteria_with_meta,
                     "filter_confidence": criteria.get("confidence", 0.0),
                     "filter_updated_at": datetime.now(timezone.utc).isoformat(),
                 }).eq("id", svc["id"]).execute()
@@ -915,9 +1247,11 @@ def run_phase2r(supabase) -> int:
             print(f"❌ {e}")
             fail += 1
 
+        _checkpoint_set_index("phase2r", i + 1)
         time.sleep(GEMINI_DELAY)
 
-    print(f"\n  Phase 2r 완료: 성공={ok}, JSON오류={parse_err}, 기타오류={fail}")
+    _checkpoint_clear("phase2r")
+    print(f"\n  Phase 2r 완료: 성공={ok}, 스킵={skipped}, JSON오류={parse_err}, 기타오류={fail}")
     return ok
 
 
@@ -1152,7 +1486,7 @@ def run_fix_cmmcd(supabase) -> int:
 
 
 def main(phase=None):
-    validate_env()
+    validate_env(phase)
     supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
     print("=" * 60)
@@ -1161,13 +1495,18 @@ def main(phase=None):
 
     if phase == "0":
         run_phase0(supabase)
+    elif phase == "providers":
+        run_phase_providers(supabase)
     elif phase == "0_detail":
         run_phase0_detail(supabase)
     elif phase == "1":
         run_phase1(supabase)
+    elif phase == "1_lite":
+        run_phase1_lite(supabase)
     elif phase == "2":
         run_phase2(supabase)
     elif phase == "2r":
+        run_phase1_lite(supabase, limit=300)
         run_phase2r(supabase)
     elif phase == "fix_region":
         run_fix_region(supabase)
@@ -1178,9 +1517,13 @@ def main(phase=None):
         run_fix_cmmcd(supabase)        
     else:
         # both → 전체 실행
+        run_phase0(supabase)
+        run_phase_providers(supabase)
         run_phase0_detail(supabase)
         run_phase1(supabase)
+        run_phase1_lite(supabase, limit=300)
         run_phase2(supabase)
+        run_fix_region(supabase)
 
     print("\n🎉 배치 완료!")
 

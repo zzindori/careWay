@@ -7,16 +7,19 @@ on:
   workflow_dispatch:
     inputs:
       phase:
-        description: '실행할 Phase (0=지자체목록, 0_detail=상세수집, 1=복지로API, 2=AI분류, both=전체)'
+        description: '실행할 Phase'
         required: false
         default: 'both'
         type: choice
         options:
           - both
           - '0'
+          - providers
           - '0_detail'
           - '1'
+          - '1_lite'
           - '2'
+          - '2r'
           - 'fix_region'
           - 'fix_cmmcd'
           - 'fix_all'
@@ -26,6 +29,12 @@ jobs:
     name: 복지서비스 데이터 수집 & AI 분류
     runs-on: ubuntu-latest
     timeout-minutes: 150
+    env:
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
+      LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
+      SOCIAL_SERVICE_API_KEY: ${{ secrets.SOCIAL_SERVICE_API_KEY }}
 
     steps:
       - name: 코드 체크아웃
@@ -44,63 +53,49 @@ jobs:
       - name: Playwright 브라우저 설치
         run: playwright install --with-deps chromium
 
-      # Phase 0 목록 수집 → 수동 '0' 선택할 때만
+      # Phase 0 목록 수집
       - name: Phase 0 - 지자체복지서비스 목록 수집
-        if: ${{ inputs.phase == '0' }}
-        env:
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
-          LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
+        if: ${{ inputs.phase == '0' || inputs.phase == 'both' }}
         run: python batch/welfare_ai_processor.py --phase 0
 
-      # Phase 0 Detail → 매일 자동 + 수동 '0_detail' 선택
+      # Phase P 제공기관 수집
+      - name: Phase P - 사회서비스 제공기관 수집
+        if: ${{ github.event_name == 'schedule' || inputs.phase == 'providers' || inputs.phase == 'both' }}
+        run: python batch/welfare_ai_processor.py --phase providers
+
+      # Phase 0 Detail 상세 수집
       - name: Phase 0 Detail - 지자체복지서비스 상세 수집
-        if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == '0_detail' }}
+        if: ${{ github.event_name == 'schedule' || inputs.phase == '0_detail' || inputs.phase == 'both' }}
         env:
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
-          LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
           PHASE0_DETAIL_LIMIT: "1500"
         run: python batch/welfare_ai_processor.py --phase 0_detail
 
-      # Phase 1 복지로 API → 매일 자동 + 수동 '1' 선택
+      # Phase 1 복지로 API 상세 수집
       - name: Phase 1 - 복지로 API 상세 수집
-        if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == '1' }}
-        env:
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
-          LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
+        if: ${{ github.event_name == 'schedule' || inputs.phase == '1' || inputs.phase == 'both' }}
         run: python batch/welfare_ai_processor.py --phase 1
 
-      # Phase 2 AI 분류 → 매일 자동 + 수동 '2' 선택
+      # Phase 1-lite 누락 상세 보강
+      - name: Phase 1-lite - 누락 상세 보강
+        if: ${{ github.event_name == 'schedule' || inputs.phase == '1_lite' || inputs.phase == 'both' }}
+        run: python batch/welfare_ai_processor.py --phase 1_lite
+
+      # Phase 2 AI 분류
       - name: Phase 2 - Gemini AI 분류
-        if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == '2' }}
-        env:
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
-          LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
+        if: ${{ github.event_name == 'schedule' || inputs.phase == '2' || inputs.phase == 'both' }}
         run: python batch/welfare_ai_processor.py --phase 2
 
-      # Fix Region → 수동 fix_region, fix_all 선택
+      # Phase 2r 순환 재분류
+      - name: Phase 2r - 순환 재분류
+        if: ${{ inputs.phase == '2r' }}
+        run: python batch/welfare_ai_processor.py --phase 2r
+
+      # Fix Region 지역 후처리
       - name: Fix Region - 지역 후처리
-        if: ${{ inputs.phase == 'fix_region' || inputs.phase == 'fix_all' }}
-        env:
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
-          LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
+        if: ${{ github.event_name == 'schedule' || inputs.phase == 'fix_region' || inputs.phase == 'fix_all' || inputs.phase == 'both' }}
         run: python batch/welfare_ai_processor.py --phase fix_region
 
-      # Fix Cmmcd → 수동 fix_cmmcd, fix_all 선택
+      # Fix Cmmcd 코드 기반 분류 보정
       - name: Fix Cmmcd - 코드 기반 분류 보정
         if: ${{ inputs.phase == 'fix_cmmcd' || inputs.phase == 'fix_all' }}
-        env:
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
-          LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
         run: python batch/welfare_ai_processor.py --phase fix_cmmcd

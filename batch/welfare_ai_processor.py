@@ -975,12 +975,79 @@ def infer_region(text: str) -> str | None:
             return region
     return None
 
+# ── cmmCdNm 코드 기반 규칙 분류 ──────────────────────────────────────────────
+
+# 생애주기 코드 → target_age_group
+LFTM_CYC_MAP = {
+    "노년":   "elderly",
+    "아동":   "child",
+    "청소년": "youth",
+    "청년":   "youth",
+    "영유아": "infant",
+    "중장년": "adult",
+    "구분없음(전생애)": "all",
+}
+
+def parse_cmmcd(raw_content: str) -> dict:
+    """
+    raw_content의 cmmCdNm 코드에서 규칙 기반 분류 추출
+    AI 분류보다 정확한 경우가 많음
+    """
+    result = {}
+
+    # cmmCdNm 추출
+    cmmcd_match = re.search(r'\[cmmCdNm\]\s*(.+)', raw_content)
+    if not cmmcd_match:
+        return result
+    cmmcd = cmmcd_match.group(1)
+
+    # 생애주기 (LFTM_CYC_CD)
+    lftm_match = re.search(r'LFTM_CYC_CD:([^;]+)', cmmcd)
+    if lftm_match:
+        values = lftm_match.group(1).split(',')
+        # 노년이 포함되면 elderly 우선
+        if "노년" in values:
+            result["target_age_group"] = "elderly"
+        elif len(values) >= 4:
+            # 여러 생애주기면 all
+            result["target_age_group"] = "all"
+        else:
+            for v in values:
+                v = v.strip()
+                if v in LFTM_CYC_MAP:
+                    result["target_age_group"] = LFTM_CYC_MAP[v]
+                    break
+
+    # 장애인 여부
+    if "DSPSN_REG_DCD:등록장애인" in cmmcd:
+        result["requires_disability"] = True
+        if "target_age_group" not in result:
+            result["target_age_group"] = "disabled"
+
+    # 소득 기준
+    if "기초생활수급대상자" in cmmcd:
+        result["requires_basic_recipient"] = True
+        result["max_income_level"] = 1
+    elif "차상위" in cmmcd:
+        result["max_income_level"] = 2
+
+    # 보훈 여부
+    if any(k in cmmcd for k in ["보훈대상자", "국가유공자", "참전유공자"]):
+        result["requires_veteran"] = True
+        if "target_age_group" not in result:
+            result["target_age_group"] = "veteran"
+
+    # 독거 여부
+    if "독거" in cmmcd:
+        result["requires_alone"] = True
+
+    return result
 
 def run_fix_region(supabase) -> int:
     print("\n━━━ FIX REGION: 지자체 서비스 지역 후처리 ━━━")
     result = (
         supabase.table("welfare_services")
-        .select("id, name, target_info, description, apply_place, detail_content, region")
+        .select("id, name, target_info, description, apply_place, detail_content, region, raw_content")
         .eq("source", "local")
         .eq("region", "전국")
         .execute()
@@ -990,23 +1057,99 @@ def run_fix_region(supabase) -> int:
 
     updated = skipped = 0
     for svc in services:
-        text = " ".join(filter(None, [
-            svc.get("name", ""),
-            svc.get("target_info", ""),
-            svc.get("description", ""),
-            svc.get("apply_place", ""),
-            svc.get("detail_content", ""),
-        ]))
-        inferred = infer_region(text)
+        # raw_content에서 [addr] 태그 먼저 추출 (가장 정확)
+        raw = svc.get("raw_content") or ""
+        addr_match = re.search(r'\[addr\]\s*(.+)', raw)
+        dept_match = re.search(r'\[bizChrDeptNm\]\s*(.+)', raw)
+
+        inferred = None
+
+        # 1순위: [addr] 태그
+        if addr_match:
+            inferred = infer_region(addr_match.group(1).strip())
+
+        # 2순위: [bizChrDeptNm] 태그
+        if not inferred and dept_match:
+            inferred = infer_region(dept_match.group(1).strip())
+
+        # 3순위: 기존 텍스트 검색
+        if not inferred:
+            text = " ".join(filter(None, [
+                svc.get("name", ""),
+                svc.get("target_info", ""),
+                svc.get("description", ""),
+                svc.get("apply_place", ""),
+                svc.get("detail_content", ""),
+            ]))
+            inferred = infer_region(text)
+
         if inferred:
-            supabase.table("welfare_services").update({"region": inferred}).eq("id", svc["id"]).execute()
+            supabase.table("welfare_services").update(
+                {"region": inferred}
+            ).eq("id", svc["id"]).execute()
             updated += 1
         else:
             skipped += 1
 
     print(f"  수정: {updated}개 / 추론 불가(유지): {skipped}개")
+    return updateddated}개 / 추론 불가(유지): {skipped}개")
     return updated
 
+# ════════════════════════════════════════════════════════════════════════════════
+# FIX CMMCD: cmmCdNm 코드 기반 규칙 분류 보정
+# ════════════════════════════════════════════════════════════════════════════════
+
+def run_fix_cmmcd(supabase) -> int:
+    """
+    raw_content의 cmmCdNm 코드로 AI 분류 결과 보정
+    특히 unknown → 정확한 분류로 변경
+    """
+    print("\n━━━ FIX CMMCD: 코드 기반 분류 보정 ━━━")
+
+    result = (
+        supabase.table("welfare_services")
+        .select("id, name, target_age_group, raw_content")
+        .not_.is_("raw_content", "null")
+        .execute()
+    )
+    services = result.data or []
+    print(f"  대상: {len(services)}개")
+
+    updated = skipped = 0
+    for svc in services:
+        raw = svc.get("raw_content") or ""
+        if not raw:
+            skipped += 1
+            continue
+
+        fixes = parse_cmmcd(raw)
+        if not fixes:
+            skipped += 1
+            continue
+
+        # unknown인 경우만 덮어쓰기
+        # 이미 분류된 것은 유지 (AI가 더 정확할 수 있음)
+        current_age = svc.get("target_age_group", "unknown")
+        if current_age == "unknown" and "target_age_group" in fixes:
+            supabase.table("welfare_services").update(fixes).eq(
+                "id", svc["id"]
+            ).execute()
+            updated += 1
+        elif fixes:
+            # unknown 아니어도 requires_* 필드는 업데이트
+            fixes.pop("target_age_group", None)
+            if fixes:
+                supabase.table("welfare_services").update(fixes).eq(
+                    "id", svc["id"]
+                ).execute()
+                updated += 1
+            else:
+                skipped += 1
+        else:
+            skipped += 1
+
+    print(f"  보정: {updated}개 / 스킵: {skipped}개")
+    return updated
 
 
 def main(phase=None):
@@ -1029,6 +1172,11 @@ def main(phase=None):
         run_phase2r(supabase)
     elif phase == "fix_region":
         run_fix_region(supabase)
+    elif phase == "fix_cmmcd":          # ← 추가
+        run_fix_cmmcd(supabase)
+    elif phase == "fix_all":            # ← 추가 (region + cmmcd 한번에)
+        run_fix_region(supabase)
+        run_fix_cmmcd(supabase)        
     else:
         # both → 전체 실행
         run_phase0_detail(supabase)

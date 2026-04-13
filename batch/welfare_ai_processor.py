@@ -47,6 +47,7 @@ import hashlib
 import requests
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from urllib.parse import parse_qs, urlparse
 
 from google import genai as google_genai
 from supabase import create_client
@@ -152,7 +153,7 @@ def validate_env(phase=None):
     missing = []
     if not SUPABASE_SERVICE_KEY:
         missing.append("SUPABASE_SERVICE_KEY")
-    if phase in (None, "1", "1_lite"):
+    if phase in (None, "1", "1_lite", "1_web"):
         if not WELFARE_API_KEY:
             missing.append("WELFARE_API_KEY")
     if phase in (None, "2", "2r"):
@@ -681,7 +682,6 @@ def extract_welfare_id(online_url: str | None) -> str | None:
     if not online_url:
         return None
     try:
-        from urllib.parse import urlparse, parse_qs
         qs = parse_qs(urlparse(online_url).query)
         if 'wlfareInfoId' in qs:
             return qs['wlfareInfoId'][0]
@@ -694,6 +694,45 @@ def extract_welfare_id(online_url: str | None) -> str | None:
     if re.match(r'^[A-Z]{2,5}\d{5,10}$', online_url):
         return online_url
     return None
+
+
+def build_bokjiro_detail_url(online_url: str | None, default_rel_code: str = "01") -> str | None:
+    """복지로 상세 URL 정규화. URL/ID 입력 모두 처리."""
+    if not online_url:
+        return None
+
+    if online_url.startswith("http://") or online_url.startswith("https://"):
+        try:
+            parsed = urlparse(online_url)
+            qs = parse_qs(parsed.query)
+            if "wlfareInfoId" in qs:
+                serv_id = qs["wlfareInfoId"][0]
+                rel_code = qs.get("wlfareInfoReldBztpCd", [default_rel_code])[0]
+                return f"{BOKJIRO_WEB_URL}?wlfareInfoId={serv_id}&wlfareInfoReldBztpCd={rel_code}"
+            return online_url
+        except Exception:
+            return online_url
+
+    serv_id = extract_welfare_id(online_url)
+    if not serv_id:
+        return None
+    return f"{BOKJIRO_WEB_URL}?wlfareInfoId={serv_id}&wlfareInfoReldBztpCd={default_rel_code}"
+
+
+def fetch_welfare_web_playwright(page, online_url: str | None, default_rel_code: str = "01") -> dict | None:
+    detail_url = build_bokjiro_detail_url(online_url, default_rel_code=default_rel_code)
+    if not detail_url:
+        return None
+    try:
+        page.goto(detail_url, wait_until="domcontentloaded", timeout=20000)
+    except Exception as e:
+        print(f"\n    [DEBUG] 웹 상세 goto 실패: {str(e)[:120]}", flush=True)
+        return None
+
+    html = page.content()
+    if not html or "initParameter" not in html:
+        return None
+    return parse_welfare_html(html)
 
 
 def fetch_welfare_detail(welfare_id: str) -> dict | None:
@@ -923,6 +962,129 @@ def run_phase1_lite(supabase, limit: int = 250) -> int:
             ok += 1
         time.sleep(API_REQUEST_DELAY)
     print(f"\n  Phase 1-lite 완료: 성공={ok}, 오류={fail}")
+    return ok
+
+
+def run_phase1_web(supabase, limit: int = 250) -> int:
+    """
+    국가 서비스 웹 상세 본문 보강.
+    API만으로 빈약한 케이스(예: "복지로에서 확인")를 상세 본문으로 대체/보강한다.
+    """
+    from playwright.sync_api import sync_playwright
+
+    print("\n━━━ PHASE 1-web: 국가 서비스 웹 상세 보강 ━━━")
+    result = (
+        supabase.table("welfare_services")
+        .select("id, name, online_url, target_info, benefit_info, apply_place, detail_content, raw_content, region")
+        .eq("source", "national")
+        .not_.is_("online_url", "null")
+        .or_("raw_content.eq.,detail_content.eq.,benefit_info.ilike.%복지로에서 확인%")
+        .limit(limit)
+        .execute()
+    )
+    services = result.data or []
+    if not services:
+        print("  ✅ 보강할 국가 웹 상세 없음")
+        return 0
+
+    print(f"  처리 대상: {len(services)}개")
+    ok = fail = consecutive_fail = 0
+    MAX_CONSECUTIVE_FAIL = 20
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled",
+            ],
+        )
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            locale="ko-KR",
+            viewport={"width": 1280, "height": 800},
+        )
+        context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+        warmup_page = context.new_page()
+        try:
+            warmup_page.goto("https://www.bokjiro.go.kr/ssis-tbu/index.do", wait_until="domcontentloaded", timeout=15000)
+            time.sleep(1.0)
+            warmup_page.goto("https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52005M.do", wait_until="domcontentloaded", timeout=20000)
+        except Exception:
+            pass
+        finally:
+            warmup_page.close()
+
+        for i, svc in enumerate(services):
+            name_short = (svc.get("name") or "")[:25]
+            print(f"  [{i+1}/{len(services)}] {name_short}... ", end="", flush=True)
+
+            pre_page = context.new_page()
+            try:
+                pre_page.goto(
+                    "https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52005M.do",
+                    wait_until="domcontentloaded",
+                    timeout=15000,
+                )
+                time.sleep(0.8)
+            except Exception:
+                pass
+            finally:
+                pre_page.close()
+
+            page = context.new_page()
+            try:
+                data = fetch_welfare_web_playwright(page, svc.get("online_url"), default_rel_code="01")
+                if not data:
+                    print("⚠ 파싱 실패")
+                    fail += 1
+                    consecutive_fail += 1
+                    if consecutive_fail >= MAX_CONSECUTIVE_FAIL:
+                        print(f"\n  연속 {MAX_CONSECUTIVE_FAIL}회 실패 → 조기 종료")
+                        break
+                    time.sleep(WEB_SCRAPE_DELAY * 2)
+                    continue
+
+                target_info = data.get("target_info") or svc.get("target_info") or ""
+                benefit_info = data.get("benefit_info") or svc.get("benefit_info") or ""
+                apply_place = data.get("apply_place") or svc.get("apply_place") or ""
+                detail_content = data.get("detail_content") or svc.get("detail_content") or ""
+                raw_content = data.get("raw_content") or svc.get("raw_content") or ""
+                inq_place = data.get("inq_place") or ""
+
+                sub_region = infer_sub_region(
+                    "\n".join(filter(None, [raw_content, detail_content, apply_place])),
+                    svc.get("region") or "",
+                )
+
+                _update_welfare_service(supabase, svc["id"], {
+                    "target_info": target_info,
+                    "benefit_info": benefit_info,
+                    "apply_place": apply_place,
+                    "detail_content": detail_content,
+                    "inq_place": inq_place,
+                    "raw_content": raw_content,
+                    "sub_region": sub_region or "",
+                    "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
+                })
+                print("✓")
+                ok += 1
+                consecutive_fail = 0
+            except Exception as e:
+                print(f"❌ {e}")
+                fail += 1
+                consecutive_fail += 1
+            finally:
+                page.close()
+
+            time.sleep(WEB_SCRAPE_DELAY)
+
+        context.close()
+        browser.close()
+
+    print(f"\n  Phase 1-web 완료: 성공={ok}, 오류={fail}")
     return ok
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -1622,6 +1784,8 @@ def main(phase=None):
         run_phase0_detail(supabase)
     elif phase == "1":
         run_phase1(supabase)
+    elif phase == "1_web":
+        run_phase1_web(supabase)
     elif phase == "1_lite":
         run_phase1_lite(supabase)
     elif phase == "2":
@@ -1642,6 +1806,7 @@ def main(phase=None):
         run_phase_providers(supabase)
         run_phase0_detail(supabase)
         run_phase1(supabase)
+        run_phase1_web(supabase, limit=300)
         run_phase1_lite(supabase, limit=300)
         run_phase2(supabase)
         run_fix_region(supabase)

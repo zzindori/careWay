@@ -17,6 +17,7 @@ on:
           - providers
           - '0_detail'
           - '1'
+          - '1_web'
           - '1_lite'
           - '2'
           - '2r'
@@ -74,6 +75,11 @@ jobs:
       - name: Phase 1 - 복지로 API 상세 수집
         if: ${{ github.event_name == 'schedule' || inputs.phase == '1' || inputs.phase == 'both' }}
         run: python batch/welfare_ai_processor.py --phase 1
+
+      # Phase 1-web 국가 웹 본문 보강
+      - name: Phase 1-web - 국가 서비스 웹 상세 보강
+        if: ${{ inputs.phase == '1_web' || inputs.phase == 'both' }}
+        run: python batch/welfare_ai_processor.py --phase 1_web
 
       # Phase 1-lite 누락 상세 보강
       - name: Phase 1-lite - 누락 상세 보강

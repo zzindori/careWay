@@ -17,7 +17,9 @@ on:
           - '0_detail'
           - '1'
           - '2'
-          - fix_region
+          - 'fix_region'
+          - 'fix_cmmcd'
+          - 'fix_all'
 
 jobs:
   batch:

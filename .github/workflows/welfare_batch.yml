@@ -44,7 +44,7 @@ jobs:
       - name: Playwright 브라우저 설치
         run: playwright install --with-deps chromium
 
-      # Phase 0 목록 수집 → 매일 자동 + 수동 '0' 선택
+      # Phase 0 목록 수집 → 수동 '0' 선택할 때만
       - name: Phase 0 - 지자체복지서비스 목록 수집
         if: ${{ inputs.phase == '0' }}
         env:
@@ -85,11 +85,22 @@ jobs:
           LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
         run: python batch/welfare_ai_processor.py --phase 2
 
+      # Fix Region → 수동 fix_region, fix_all 선택
       - name: Fix Region - 지역 후처리
-        if: ${{ github.event_name == 'schedule' || inputs.phase == 'both' || inputs.phase == 'fix_region' }}
+        if: ${{ inputs.phase == 'fix_region' || inputs.phase == 'fix_all' }}
         env:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
           LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
         run: python batch/welfare_ai_processor.py --phase fix_region
+
+      # Fix Cmmcd → 수동 fix_cmmcd, fix_all 선택
+      - name: Fix Cmmcd - 코드 기반 분류 보정
+        if: ${{ inputs.phase == 'fix_cmmcd' || inputs.phase == 'fix_all' }}
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          WELFARE_API_KEY: ${{ secrets.WELFARE_API_KEY }}
+          LOCAL_WELFARE_API_KEY: ${{ secrets.LOCAL_WELFARE_API_KEY }}
+        run: python batch/welfare_ai_processor.py --phase fix_cmmcd

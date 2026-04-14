@@ -35,7 +35,8 @@ Phase 2: Gemini AI 분류 → DB 저장 (target_age_group, 필터 조건)
   python welfare_ai_processor.py --phase 1   # API 수집만
   python welfare_ai_processor.py --phase 2   # AI 분류만
 
-비용: 무료 (Gemini 1.5 Flash 무료 티어 - 하루 1,500회 요청)
+비용: Gemini 유료/쿼터 정책에 따름. 일일 스케줄은 GitHub Actions에서
+  PHASE2_LIMIT(기본 400) 등으로 호출 상한을 둔다.
 """
 
 import os
@@ -80,6 +81,7 @@ AI_MIN_CONTENT_LENGTH = 40
 AI_SKIP_CONFIDENCE_THRESHOLD = 0.85
 CHECKPOINT_FILE = os.path.join(os.path.dirname(__file__), ".welfare_batch_checkpoint.json")
 _SUB_REGION_COLUMN_AVAILABLE: bool | None = None
+_SEARCH_TOKENS_COLUMN_AVAILABLE: bool | None = None
 
 SOCIAL_CATEGORY_SERVICE_TYPE = {
     "care": "BA",
@@ -124,25 +126,228 @@ def _is_missing_sub_region_column_error(err: Exception) -> bool:
     return "sub_region" in msg and ("column" in msg or "schema cache" in msg)
 
 
+def _is_missing_search_tokens_column_error(err: Exception) -> bool:
+    msg = str(err).lower()
+    return "search_tokens" in msg and ("column" in msg or "schema cache" in msg)
+
+
+def _split_search_words(text: str) -> list[str]:
+    cleaned = strip_html(text or "").lower()
+    if not cleaned:
+        return []
+    return re.findall(r"[a-z0-9가-힣]+", cleaned)
+
+
+_NOISY_SEARCH_TOKENS = {
+    "행정복지센터",
+    "읍면동행정복지센터",
+    "주민센터",
+    "복지로",
+}
+
+
+_ALLOWED_SERVICE_TAGS = {
+    # 기존 태그 (앱 호환)
+    "dementia",
+    "mobility",
+    "daily_care",
+    "hearing",
+    "vision",
+    "medical",
+    # 확장 태그 (AI 분류 + 검색 정밀도 개선)
+    "hospital_companion",
+    "meal_support",
+    "home_visit",
+    "financial_support",
+    "housing_repair",
+    "mental_health",
+    "caregiver_support",
+}
+
+# AI가 한국어/유사 표기로 응답해도 canonical tag로 정규화
+_SERVICE_TAG_CANONICAL = {
+    "치매": "dementia",
+    "인지": "dementia",
+    "이동": "mobility",
+    "이동지원": "mobility",
+    "교통지원": "mobility",
+    "병원동행": "hospital_companion",
+    "동행": "hospital_companion",
+    "일상돌봄": "daily_care",
+    "돌봄": "daily_care",
+    "식사": "meal_support",
+    "식사지원": "meal_support",
+    "방문": "home_visit",
+    "방문돌봄": "home_visit",
+    "방문요양": "home_visit",
+    "가사": "daily_care",
+    "청각": "hearing",
+    "보청기": "hearing",
+    "시각": "vision",
+    "안경": "vision",
+    "개안": "vision",
+    "의료": "medical",
+    "진료": "medical",
+    "치료": "medical",
+    "정신건강": "mental_health",
+    "상담": "mental_health",
+    "주거개선": "housing_repair",
+    "집수리": "housing_repair",
+    "현금지원": "financial_support",
+    "수당": "financial_support",
+    "간병가족": "caregiver_support",
+    "가족돌봄": "caregiver_support",
+}
+
+# 검색 시 사람이 입력할 만한 표현을 태그 기반으로 확장
+_SERVICE_TAG_SEARCH_ALIASES = {
+    "dementia": ["치매", "인지", "인지지원"],
+    "mobility": ["이동", "이동지원", "교통지원", "차량지원", "택시"],
+    "daily_care": ["돌봄", "일상생활", "가사", "요양", "재가"],
+    "hearing": ["보청기", "청각", "난청"],
+    "vision": ["시각", "안경", "개안", "저시력"],
+    "medical": ["의료", "진료", "치료", "검진", "투약"],
+    "hospital_companion": ["병원동행", "동행", "의료동행", "병원"],
+    "meal_support": ["식사", "식사지원", "도시락", "급식"],
+    "home_visit": ["방문", "방문돌봄", "방문요양", "재가방문"],
+    "financial_support": ["지원금", "수당", "현금지원", "바우처", "급여"],
+    "housing_repair": ["주거", "집수리", "주택개조", "주거개선"],
+    "mental_health": ["정신건강", "심리", "상담", "우울"],
+    "caregiver_support": ["가족돌봄", "간병가족", "부양가족", "돌봄휴가"],
+}
+
+
+def _is_noisy_search_token(token: str) -> bool:
+    if not token:
+        return True
+    if token in _NOISY_SEARCH_TOKENS:
+        return True
+    if token.endswith("행정복지센터"):
+        return True
+    if token.endswith("주민센터"):
+        return True
+    return False
+
+
+def _normalize_service_tags(tags: list[str] | None) -> list[str]:
+    out: list[str] = []
+    seen = set()
+    for raw in tags or []:
+        t = str(raw or "").strip().lower()
+        if not t:
+            continue
+        t = t.replace("-", "_").replace(" ", "_")
+        canonical = _SERVICE_TAG_CANONICAL.get(t, t)
+        if canonical not in _ALLOWED_SERVICE_TAGS:
+            continue
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        out.append(canonical)
+    return out
+
+
+def _extract_domain_keywords(payload: dict) -> list[str]:
+    tags = _normalize_service_tags(payload.get("service_tags") if isinstance(payload.get("service_tags"), list) else [])
+    out: list[str] = []
+    for tag in tags:
+        out.extend(_SERVICE_TAG_SEARCH_ALIASES.get(tag, []))
+
+    # 태그가 비어있는 경우에만 최소한의 텍스트 폴백 (오탐 방지)
+    if not tags:
+        text = " ".join(
+            str(payload.get(k) or "")
+            for k in [
+                "name",
+                "description",
+                "target_info",
+                "benefit_info",
+                "apply_place",
+                "detail_content",
+                "raw_content",
+                "ai_summary",
+            ]
+        )
+        if re.search(r"병원\s*동행|의료\s*동행|동행\s*서비스", text):
+            out.extend(["병원동행", "동행"])
+        if re.search(r"이동\s*지원|교통\s*지원|차량\s*지원|택시", text):
+            out.append("이동지원")
+    return out
+
+
+def _build_search_tokens(payload: dict) -> list[str]:
+    bag: list[str] = []
+    for key in [
+        "name",
+        "description",
+        "target_info",
+        "benefit_info",
+        "apply_place",
+        "detail_content",
+        "raw_content",
+        "ai_summary",
+        "region",
+        "sub_region",
+        "category",
+    ]:
+        val = payload.get(key)
+        if isinstance(val, str) and val.strip():
+            bag.extend(_split_search_words(val))
+
+    tags = payload.get("service_tags")
+    if isinstance(tags, list):
+        for t in tags:
+            if t is None:
+                continue
+            bag.extend(_split_search_words(str(t)))
+    bag.extend(_normalize_service_tags(tags if isinstance(tags, list) else []))
+    bag.extend(_extract_domain_keywords(payload))
+
+    uniq: list[str] = []
+    seen = set()
+    for tok in bag:
+        if not tok or len(tok) < 2:
+            continue
+        if _is_noisy_search_token(tok):
+            continue
+        if tok in seen:
+            continue
+        seen.add(tok)
+        uniq.append(tok)
+    return uniq[:300]
+
+
 def _update_welfare_service(supabase, service_id: int, payload: dict):
     """
     `sub_region` 컬럼이 아직 없는 환경에서도 배치가 중단되지 않도록
     1회 자동 폴백(키 제거 후 재시도) 처리.
     """
-    global _SUB_REGION_COLUMN_AVAILABLE
+    global _SUB_REGION_COLUMN_AVAILABLE, _SEARCH_TOKENS_COLUMN_AVAILABLE
 
     if _SUB_REGION_COLUMN_AVAILABLE is False and "sub_region" in payload:
         payload = {k: v for k, v in payload.items() if k != "sub_region"}
+    if _SEARCH_TOKENS_COLUMN_AVAILABLE is False and "search_tokens" in payload:
+        payload = {k: v for k, v in payload.items() if k != "search_tokens"}
 
     try:
         supabase.table("welfare_services").update(payload).eq("id", service_id).execute()
         if "sub_region" in payload:
             _SUB_REGION_COLUMN_AVAILABLE = True
+        if "search_tokens" in payload:
+            _SEARCH_TOKENS_COLUMN_AVAILABLE = True
         return
     except Exception as e:
-        if "sub_region" in payload and _is_missing_sub_region_column_error(e):
+        fallback = dict(payload)
+        retriable = False
+        if "sub_region" in fallback and _is_missing_sub_region_column_error(e):
             _SUB_REGION_COLUMN_AVAILABLE = False
-            fallback = {k: v for k, v in payload.items() if k != "sub_region"}
+            fallback.pop("sub_region", None)
+            retriable = True
+        if "search_tokens" in fallback and _is_missing_search_tokens_column_error(e):
+            _SEARCH_TOKENS_COLUMN_AVAILABLE = False
+            fallback.pop("search_tokens", None)
+            retriable = True
+        if retriable:
             supabase.table("welfare_services").update(fallback).eq("id", service_id).execute()
             return
         raise
@@ -318,6 +523,15 @@ def run_phase0(supabase) -> int:
                     "gender": "any",
                     "target_age_group": "unknown",
                     "region": it.get("region", ""),
+                    "search_tokens": _build_search_tokens({
+                        "name": it["name"],
+                        "description": it["description"] or it["name"],
+                        "target_info": it["target_info"],
+                        "benefit_info": it["benefit_info"],
+                        "apply_place": it["apply_place"],
+                        "region": it.get("region", ""),
+                        "category": it["category"],
+                    }),
                     "source": "local",
                 }, on_conflict="online_url").execute()
                 existing_ids.add(it["serv_id"])
@@ -498,20 +712,33 @@ def _infer_target_age_group_from_text(text: str, current: str) -> str:
 
 def _augment_service_tags(text: str, tags: list[str]) -> list[str]:
     t = (text or "").lower()
-    out = set(tags)
+    out = set(_normalize_service_tags(tags))
     if any(k in t for k in ["병원동행", "이동지원", "교통지원", "차량지원", "택시"]):
         out.add("mobility")
+        out.add("hospital_companion")
     if any(k in t for k in ["치매", "인지"]):
         out.add("dementia")
     if any(k in t for k in ["방문요양", "일상생활", "가사", "식사"]):
         out.add("daily_care")
+    if any(k in t for k in ["식사", "도시락", "급식"]):
+        out.add("meal_support")
+    if any(k in t for k in ["방문", "재가", "방문요양", "방문돌봄"]):
+        out.add("home_visit")
     if any(k in t for k in ["보청기", "청각"]):
         out.add("hearing")
     if any(k in t for k in ["안경", "시각", "개안"]):
         out.add("vision")
     if any(k in t for k in ["의료", "진료", "치료", "투약", "검진"]):
         out.add("medical")
-    return list(out)
+    if any(k in t for k in ["지원금", "수당", "급여", "바우처", "현금"]):
+        out.add("financial_support")
+    if any(k in t for k in ["주거개선", "주택개조", "집수리"]):
+        out.add("housing_repair")
+    if any(k in t for k in ["정신건강", "상담", "우울"]):
+        out.add("mental_health")
+    if any(k in t for k in ["가족돌봄", "간병가족", "부양가족"]):
+        out.add("caregiver_support")
+    return [tag for tag in out if tag in _ALLOWED_SERVICE_TAGS]
 
 
 def _normalize_category(category: str, service_tags: list | None, text: str) -> str:
@@ -809,6 +1036,17 @@ def run_phase0_detail(supabase) -> int:
                         "inq_place": data["inq_place"],
                         "raw_content": data["raw_content"],
                         "sub_region": inferred_sub_region or "",
+                        "search_tokens": _build_search_tokens({
+                            "name": svc.get("name", ""),
+                            "description": svc.get("description", ""),
+                            "target_info": data["target_info"],
+                            "benefit_info": data["benefit_info"],
+                            "apply_place": data["apply_place"],
+                            "detail_content": data["detail_content"] or svc.get("description", ""),
+                            "raw_content": data["raw_content"],
+                            "region": base_region,
+                            "sub_region": inferred_sub_region or "",
+                        }),
                         "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
                     }
                     _update_welfare_service(supabase, svc["id"], update)
@@ -1058,6 +1296,16 @@ def run_phase1(supabase) -> int:
                 "apply_place": apply_place,
                 "raw_content": detail.get("raw_content", ""),
                 "sub_region": sub_region or "",
+                "search_tokens": _build_search_tokens({
+                    "name": svc.get("name", ""),
+                    "target_info": target_info,
+                    "benefit_info": benefit_info,
+                    "apply_place": apply_place,
+                    "detail_content": detail["detail_content"],
+                    "raw_content": detail.get("raw_content", ""),
+                    "region": svc.get("region") or "",
+                    "sub_region": sub_region or "",
+                }),
                 "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
             })
             print("✓")
@@ -1124,6 +1372,16 @@ def run_phase1_lite(supabase, limit: int = 250) -> int:
                 "apply_place": detail.get("apply_place") or (svc.get("apply_place") or ""),
                 "raw_content": detail.get("raw_content") or (svc.get("raw_content") or ""),
                 "sub_region": sub_region or "",
+                "search_tokens": _build_search_tokens({
+                    "name": svc.get("name", ""),
+                    "target_info": detail.get("target_info") or (svc.get("target_info") or ""),
+                    "benefit_info": detail.get("benefit_info") or (svc.get("benefit_info") or ""),
+                    "apply_place": detail.get("apply_place") or (svc.get("apply_place") or ""),
+                    "detail_content": detail.get("detail_content") or (svc.get("detail_content") or ""),
+                    "raw_content": detail.get("raw_content") or (svc.get("raw_content") or ""),
+                    "region": svc.get("region") or "",
+                    "sub_region": sub_region or "",
+                }),
                 "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
             })
             print("✓")
@@ -1133,12 +1391,19 @@ def run_phase1_lite(supabase, limit: int = 250) -> int:
     return ok
 
 
-def run_phase1_web(supabase, limit: int = 250) -> int:
+def run_phase1_web(supabase, limit: int | None = None) -> int:
     """
     국가 서비스 웹 상세 본문 보강.
     API만으로 빈약한 케이스(예: "복지로에서 확인")를 상세 본문으로 대체/보강한다.
     """
     from playwright.sync_api import sync_playwright
+
+    if limit is None:
+        try:
+            limit = int(os.getenv("PHASE1_WEB_LIMIT", "250"))
+        except ValueError:
+            limit = 250
+    limit = max(1, min(limit, 3000))
 
     print("\n━━━ PHASE 1-web: 국가 서비스 웹 상세 보강 ━━━")
     result = (
@@ -1236,6 +1501,16 @@ def run_phase1_web(supabase, limit: int = 250) -> int:
                     "inq_place": inq_place,
                     "raw_content": raw_content,
                     "sub_region": sub_region or "",
+                    "search_tokens": _build_search_tokens({
+                        "name": svc.get("name", ""),
+                        "target_info": target_info,
+                        "benefit_info": benefit_info,
+                        "apply_place": apply_place,
+                        "detail_content": detail_content,
+                        "raw_content": raw_content,
+                        "region": svc.get("region") or "",
+                        "sub_region": sub_region or "",
+                    }),
                     "detail_fetched_at": datetime.now(timezone.utc).isoformat(),
                 })
                 print("✓")
@@ -1285,12 +1560,20 @@ EXTRACTION_RULES = """
     "mobility" → 교통비·버스요금·차량지원·이동도우미·병원동행 (※이동통신/전화요금은 living)
     ※ 이동전화·통신비는 반드시 "living"으로 분류
 - service_tags: 서비스 성격 태그 배열 (해당하는 것 모두 포함)
-    "dementia"   → 치매 관련 서비스
-    "mobility"   → 이동지원·병원동행·교통지원
-    "daily_care" → 식사·세면·집안일·일상생활 지원
-    "hearing"    → 청각 지원·보청기
-    "vision"     → 시각 지원·안경·개안수술
-    "medical"    → 의료비·건강검진·투약 지원
+    "dementia"           → 치매 관련 서비스
+    "mobility"           → 이동지원·교통지원
+    "hospital_companion" → 병원동행·의료동행
+    "daily_care"         → 일상생활·가사·요양 지원
+    "meal_support"       → 식사·도시락·급식 지원
+    "home_visit"         → 방문형 서비스(방문요양/방문돌봄)
+    "hearing"            → 청각 지원·보청기
+    "vision"             → 시각 지원·안경·개안수술
+    "medical"            → 의료비·건강검진·투약 지원
+    "financial_support"  → 수당·지원금·현금·바우처
+    "housing_repair"     → 주거개선·집수리·주택개조
+    "mental_health"      → 정신건강·심리상담
+    "caregiver_support"  → 가족돌봄자·간병가족 지원
+    ※ 위 목록 외 태그는 생성하지 말 것
     예: ["daily_care", "mobility"] / 해당 없으면 []
 - target_age_group:
     "elderly"   → 노인·어르신·65세이상·60세이상·장기요양
@@ -1411,7 +1694,7 @@ def _postprocess_ai_criteria(criteria: dict, svc: dict) -> dict:
     tags = out.get("service_tags")
     if not isinstance(tags, list):
         tags = []
-    out["service_tags"] = [str(t) for t in tags if str(t).strip()]
+    out["service_tags"] = _normalize_service_tags([str(t) for t in tags if str(t).strip()])
     out["service_tags"] = _augment_service_tags(source_text, out["service_tags"])
 
     out["category"] = _normalize_category(
@@ -1495,12 +1778,19 @@ def _should_skip_ai_call(svc: dict, reclassify: bool) -> tuple[bool, str]:
 def run_phase2(supabase) -> int:
     print("\n━━━ PHASE 2: Gemini AI 분류 ━━━")
 
+    try:
+        phase2_limit = int(os.getenv("PHASE2_LIMIT", "1000"))
+    except ValueError:
+        phase2_limit = 1000
+    phase2_limit = max(1, min(phase2_limit, 2000))
+    print(f"  조회 상한: {phase2_limit}건 (환경변수 PHASE2_LIMIT)")
+
     result = (
         supabase.table("welfare_services")
         .select("id, name, target_info, benefit_info, apply_place, detail_content, raw_content, region")
         .is_("filter_updated_at", "null")
         .order("id")
-        .limit(1000)
+        .limit(phase2_limit)
         .execute()
     )
     services = result.data or []
@@ -1550,6 +1840,8 @@ def run_phase2(supabase) -> int:
                 input_hash = _build_ai_input_hash(svc)
                 criteria_with_meta = dict(criteria)
                 criteria_with_meta["input_hash"] = input_hash
+                normalized_region = normalize_region(criteria.get("region") or svc.get("region") or "전국")
+                ai_summary = criteria.get("summary", "")
                 supabase.table("welfare_services").update({
                     "category": criteria.get("category", "living"),
                     "gender": criteria.get("gender", "any"),
@@ -1562,8 +1854,20 @@ def run_phase2(supabase) -> int:
                     "requires_veteran": criteria.get("requires_veteran", False),
                     "service_tags": criteria.get("service_tags", []),
                     "target_age_group": criteria.get("target_age_group", "unknown"),
-                    "region": normalize_region(criteria.get("region") or svc.get("region") or "전국"),
-                    "ai_summary": criteria.get("summary", ""),
+                    "region": normalized_region,
+                    "ai_summary": ai_summary,
+                    "search_tokens": _build_search_tokens({
+                        "name": svc.get("name", ""),
+                        "target_info": svc.get("target_info", ""),
+                        "benefit_info": svc.get("benefit_info", ""),
+                        "apply_place": svc.get("apply_place", ""),
+                        "detail_content": svc.get("detail_content", ""),
+                        "raw_content": svc.get("raw_content", ""),
+                        "region": normalized_region,
+                        "category": criteria.get("category", "living"),
+                        "service_tags": criteria.get("service_tags", []),
+                        "ai_summary": ai_summary,
+                    }),
                     "ai_criteria": criteria_with_meta,
                     "filter_confidence": criteria.get("confidence", 0.0),
                     "filter_updated_at": datetime.now(timezone.utc).isoformat(),
@@ -1602,13 +1906,20 @@ def run_phase2(supabase) -> int:
 def run_phase2r(supabase) -> int:
     print("\n━━━ PHASE 2r: 전체 순환 재분류 (oldest first) ━━━")
 
+    try:
+        phase2r_limit = int(os.getenv("PHASE2R_LIMIT", "1000"))
+    except ValueError:
+        phase2r_limit = 1000
+    phase2r_limit = max(1, min(phase2r_limit, 2000))
+    print(f"  조회 상한: {phase2r_limit}건 (환경변수 PHASE2R_LIMIT)")
+
     result = (
         supabase.table("welfare_services")
         .select("id, name, target_info, benefit_info, apply_place, detail_content, raw_content, region, ai_criteria, filter_confidence")
         .not_.is_("filter_updated_at", "null")
         .order("filter_updated_at", desc=False)
         .order("id")
-        .limit(1000)
+        .limit(phase2r_limit)
         .execute()
     )
     services = result.data or []
@@ -1657,6 +1968,8 @@ def run_phase2r(supabase) -> int:
                 input_hash = _build_ai_input_hash(svc)
                 criteria_with_meta = dict(criteria)
                 criteria_with_meta["input_hash"] = input_hash
+                normalized_region = normalize_region(criteria.get("region") or svc.get("region") or "전국")
+                ai_summary = criteria.get("summary", "")
                 supabase.table("welfare_services").update({
                     "category": criteria.get("category", "living"),
                     "gender": criteria.get("gender", "any"),
@@ -1669,8 +1982,20 @@ def run_phase2r(supabase) -> int:
                     "requires_veteran": criteria.get("requires_veteran", False),
                     "service_tags": criteria.get("service_tags", []),
                     "target_age_group": criteria.get("target_age_group", "unknown"),
-                    "region": normalize_region(criteria.get("region") or svc.get("region") or "전국"),
-                    "ai_summary": criteria.get("summary", ""),
+                    "region": normalized_region,
+                    "ai_summary": ai_summary,
+                    "search_tokens": _build_search_tokens({
+                        "name": svc.get("name", ""),
+                        "target_info": svc.get("target_info", ""),
+                        "benefit_info": svc.get("benefit_info", ""),
+                        "apply_place": svc.get("apply_place", ""),
+                        "detail_content": svc.get("detail_content", ""),
+                        "raw_content": svc.get("raw_content", ""),
+                        "region": normalized_region,
+                        "category": criteria.get("category", "living"),
+                        "service_tags": criteria.get("service_tags", []),
+                        "ai_summary": ai_summary,
+                    }),
                     "ai_criteria": criteria_with_meta,
                     "filter_confidence": criteria.get("confidence", 0.0),
                     "filter_updated_at": datetime.now(timezone.utc).isoformat(),
@@ -1989,6 +2314,82 @@ def run_fix_cmmcd(supabase) -> int:
     return updated
 
 
+def run_fix_search_tokens(supabase, batch_size: int = 500, max_scan: int = 20000, force: bool = False) -> int:
+    """
+    기존 서비스에 search_tokens 백필.
+    이미 search_tokens가 채워진 행은 건너뛴다.
+    """
+    print("\n━━━ FIX SEARCH TOKENS: 검색 토큰 백필 ━━━")
+    try:
+        batch_size = int(os.getenv("FIX_SEARCH_TOKENS_BATCH", str(batch_size)))
+    except ValueError:
+        batch_size = 500
+    try:
+        max_scan = int(os.getenv("FIX_SEARCH_TOKENS_MAX_SCAN", str(max_scan)))
+    except ValueError:
+        max_scan = 20000
+    batch_size = max(50, min(batch_size, 2000))
+    max_scan = max(500, min(max_scan, 500000))
+    print(f"  스캔 상한={max_scan}, 배치={batch_size}")
+    last_id = 0
+    scanned = 0
+    updated = 0
+    skipped_existing = 0
+    skipped_empty = 0
+
+    while scanned < max_scan:
+        query = (
+            supabase.table("welfare_services")
+            .select("id, name, category, description, target_info, benefit_info, apply_place, detail_content, raw_content, ai_summary, region, sub_region, service_tags, search_tokens")
+            .order("id")
+            .limit(batch_size)
+        )
+        if last_id:
+            query = query.gt("id", last_id)
+        result = query.execute()
+        services = result.data or []
+        if not services:
+            break
+
+        for svc in services:
+            scanned += 1
+            last_id = svc.get("id") or last_id
+
+            existing = svc.get("search_tokens")
+            if (not force) and isinstance(existing, list) and any(str(x).strip() for x in existing):
+                skipped_existing += 1
+                continue
+
+            tokens = _build_search_tokens(svc)
+            if not tokens:
+                skipped_empty += 1
+                continue
+
+            if isinstance(existing, list) and existing == tokens:
+                skipped_existing += 1
+                continue
+
+            try:
+                _update_welfare_service(
+                    supabase,
+                    svc["id"],
+                    {
+                        "search_tokens": tokens,
+                    },
+                )
+                updated += 1
+            except Exception as e:
+                print(f"  ⚠ 토큰 저장 실패 (id={svc.get('id')}): {e}")
+
+        if len(services) < batch_size:
+            break
+
+    print(
+        f"  완료: 스캔={scanned} / 업데이트={updated} / 기존토큰스킵={skipped_existing} / 빈토큰스킵={skipped_empty} / 강제재생성={'ON' if force else 'OFF'}"
+    )
+    return updated
+
+
 def main(phase=None):
     validate_env(phase)
     supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -2018,9 +2419,14 @@ def main(phase=None):
         run_fix_region(supabase)
     elif phase == "fix_cmmcd":          # ← 추가
         run_fix_cmmcd(supabase)
+    elif phase == "fix_search_tokens":
+        run_fix_search_tokens(supabase)
+    elif phase == "fix_search_tokens_force":
+        run_fix_search_tokens(supabase, force=True)
     elif phase == "fix_all":            # ← 추가 (region + cmmcd 한번에)
         run_fix_region(supabase)
-        run_fix_cmmcd(supabase)        
+        run_fix_cmmcd(supabase)
+        run_fix_search_tokens(supabase)
     else:
         # both → 전체 실행
         run_phase0(supabase)

@@ -24,6 +24,8 @@ on:
           - 'fix_region'
           - 'fix_cmmcd'
           - 'fix_all'
+          - fix_search_tokens
+          - fix_search_tokens_force
 
 jobs:
   batch:
@@ -56,7 +58,7 @@ jobs:
 
       # Phase 0 목록 수집
       - name: Phase 0 - 지자체복지서비스 목록 수집
-        if: ${{ inputs.phase == '0' || inputs.phase == 'both' }}
+        if: ${{ github.event_name == 'schedule' || inputs.phase == '0' || inputs.phase == 'both' }}
         run: python batch/welfare_ai_processor.py --phase 0
 
       # Phase P 제공기관 수집
@@ -76,9 +78,17 @@ jobs:
         if: ${{ github.event_name == 'schedule' || inputs.phase == '1' || inputs.phase == 'both' }}
         run: python batch/welfare_ai_processor.py --phase 1
 
-      # Phase 1-web 국가 웹 본문 보강
-      - name: Phase 1-web - 국가 서비스 웹 상세 보강
-        if: ${{ inputs.phase == '1_web' || inputs.phase == 'both' }}
+      # Phase 1-web 국가 웹 본문 보강 (스케줄: 소량 / 수동 both: 기본 한도)
+      - name: Phase 1-web - 국가 서비스 웹 상세 (스케줄 소량)
+        if: ${{ github.event_name == 'schedule' }}
+        env:
+          PHASE1_WEB_LIMIT: "120"
+        run: python batch/welfare_ai_processor.py --phase 1_web
+
+      - name: Phase 1-web - 국가 서비스 웹 상세 (수동)
+        if: ${{ github.event_name != 'schedule' && (inputs.phase == '1_web' || inputs.phase == 'both') }}
+        env:
+          PHASE1_WEB_LIMIT: "300"
         run: python batch/welfare_ai_processor.py --phase 1_web
 
       # Phase 1-lite 누락 상세 보강
@@ -86,14 +96,32 @@ jobs:
         if: ${{ github.event_name == 'schedule' || inputs.phase == '1_lite' || inputs.phase == 'both' }}
         run: python batch/welfare_ai_processor.py --phase 1_lite
 
-      # Phase 2 AI 분류
-      - name: Phase 2 - Gemini AI 분류
-        if: ${{ github.event_name == 'schedule' || inputs.phase == '2' || inputs.phase == 'both' }}
+      # Phase 2 AI 분류 (스케줄: Gemini 일일 상한 분리 — 유료 구간 회피)
+      - name: Phase 2 - Gemini AI 분류 (스케줄)
+        if: ${{ github.event_name == 'schedule' }}
+        env:
+          PHASE2_LIMIT: "400"
         run: python batch/welfare_ai_processor.py --phase 2
+
+      - name: Phase 2 - Gemini AI 분류 (수동 both / phase 2)
+        if: ${{ github.event_name != 'schedule' && (inputs.phase == '2' || inputs.phase == 'both') }}
+        env:
+          PHASE2_LIMIT: "1000"
+        run: python batch/welfare_ai_processor.py --phase 2
+
+      # 검색 토큰만 정리 (Gemini 호출 없음)
+      - name: Fix search_tokens (스케줄, 무료)
+        if: ${{ github.event_name == 'schedule' }}
+        env:
+          FIX_SEARCH_TOKENS_MAX_SCAN: "12000"
+          FIX_SEARCH_TOKENS_BATCH: "400"
+        run: python batch/welfare_ai_processor.py --phase fix_search_tokens
 
       # Phase 2r 순환 재분류
       - name: Phase 2r - 순환 재분류
         if: ${{ inputs.phase == '2r' }}
+        env:
+          PHASE2R_LIMIT: "800"
         run: python batch/welfare_ai_processor.py --phase 2r
 
       # Fix Region 지역 후처리
@@ -105,3 +133,11 @@ jobs:
       - name: Fix Cmmcd - 코드 기반 분류 보정
         if: ${{ inputs.phase == 'fix_cmmcd' || inputs.phase == 'fix_all' }}
         run: python batch/welfare_ai_processor.py --phase fix_cmmcd
+
+      - name: Fix search_tokens (수동)
+        if: ${{ inputs.phase == 'fix_search_tokens' }}
+        run: python batch/welfare_ai_processor.py --phase fix_search_tokens
+
+      - name: Fix search_tokens 강제 재생성 (수동)
+        if: ${{ inputs.phase == 'fix_search_tokens_force' }}
+        run: python batch/welfare_ai_processor.py --phase fix_search_tokens_force

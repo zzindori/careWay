@@ -454,6 +454,7 @@ def _clean_summary_text(summary: str) -> str:
     banned_patterns = [
         r"복지로(?:에서)?\s*확인[^\.\n]*",
         r"가까운\s*주민센터[^\.\n]*",
+        r"복지로\s*또는[^\.\n]*",
         r"자세한\s*내용은[^\.\n]*",
         r"문의하시면\s*됩니다[^\.\n]*",
     ]
@@ -461,6 +462,56 @@ def _clean_summary_text(summary: str) -> str:
         s = re.sub(p, "", s, flags=re.IGNORECASE)
     s = re.sub(r'\s+', ' ', s).strip(" ,.;")
     return s
+
+
+def _infer_target_age_group_from_text(text: str, current: str) -> str:
+    t = (text or "").lower()
+    cur = (current or "unknown").strip()
+    if cur in {"infant", "child", "youth", "elderly", "veteran", "disabled", "adult", "all"}:
+        # 이미 명확한 값이면 유지하되, 영유아/아동/청소년 키워드가 강하면 교정
+        pass
+
+    infant_keys = ["임신", "출산", "산모", "영유아", "신생아", "태아", "입양"]
+    child_keys = ["아동", "어린이", "초등", "중학생", "고등학생", "학생"]
+    youth_keys = ["청소년", "청년", "대학생", "청년층"]
+    elderly_keys = ["노인", "어르신", "고령", "65세", "60세", "경로", "실버"]
+    veteran_keys = ["보훈", "국가유공자", "참전유공자", "독립유공자"]
+    disabled_keys = ["장애인", "등록장애인"]
+
+    if any(k in t for k in infant_keys):
+        return "infant"
+    if any(k in t for k in child_keys):
+        return "child"
+    if any(k in t for k in youth_keys):
+        return "youth"
+    if any(k in t for k in veteran_keys):
+        return "veteran"
+    if any(k in t for k in disabled_keys):
+        return "disabled"
+    if any(k in t for k in elderly_keys):
+        return "elderly"
+
+    if cur in {"unknown", ""}:
+        return "all"
+    return cur
+
+
+def _augment_service_tags(text: str, tags: list[str]) -> list[str]:
+    t = (text or "").lower()
+    out = set(tags)
+    if any(k in t for k in ["병원동행", "이동지원", "교통지원", "차량지원", "택시"]):
+        out.add("mobility")
+    if any(k in t for k in ["치매", "인지"]):
+        out.add("dementia")
+    if any(k in t for k in ["방문요양", "일상생활", "가사", "식사"]):
+        out.add("daily_care")
+    if any(k in t for k in ["보청기", "청각"]):
+        out.add("hearing")
+    if any(k in t for k in ["안경", "시각", "개안"]):
+        out.add("vision")
+    if any(k in t for k in ["의료", "진료", "치료", "투약", "검진"]):
+        out.add("medical")
+    return list(out)
 
 
 def _normalize_category(category: str, service_tags: list | None, text: str) -> str:
@@ -1251,6 +1302,9 @@ EXTRACTION_RULES = """
     "disabled"  → 장애인 전용
     "all"       → 전연령·소득기준만있음
     "unknown"   → 판단불가
+    ※ 임신/출산/영유아/신생아/입양 키워드가 있으면 반드시 "infant"
+    ※ 아동/어린이/학생 중심이면 "child", 청년/청소년이면 "youth"
+    ※ 노인 앱 맥락이라도 비노년 사업을 "elderly"로 올리지 말 것
 - region: 시도명
     지역 판단 기준 (아래 순서로 적용):
     1. API에서 지역 정보(region_hint)가 제공된 경우 → 그대로 사용 (내용과 무관하게 우선)
@@ -1275,6 +1329,7 @@ EXTRACTION_RULES = """
     ※ "복지로에서 확인", "가까운 주민센터 문의" 같은 상투 문구는 금지
     ※ 근거 없는 주기/금액(예: 매월, 연 n만원) 추정 금지
     ※ 실제 데이터에 있는 신청 방법/문의처를 짧게 반영
+    ※ 마지막 문장을 단순 안내문으로 끝내지 말고, 자격/혜택/신청 핵심을 구체적으로 남길 것
     예: "만 65세 이상 기초생활수급자 어르신께 매달 이·미용 서비스 바우처 3만원을 드리는 사업이에요.
          소득이 적은 홀몸 어르신이라면 신청해볼 만해요. 읍면동 주민센터에 방문해서 신청하시면 돼요."
     예: "부산에 사시는 65세 이상 어르신 중 소득 하위 70% 이하라면 냉·난방비를 최대 연 30만원 지원받을 수 있어요.
@@ -1357,11 +1412,17 @@ def _postprocess_ai_criteria(criteria: dict, svc: dict) -> dict:
     if not isinstance(tags, list):
         tags = []
     out["service_tags"] = [str(t) for t in tags if str(t).strip()]
+    out["service_tags"] = _augment_service_tags(source_text, out["service_tags"])
 
     out["category"] = _normalize_category(
         str(out.get("category") or "living"),
         out.get("service_tags"),
         source_text,
+    )
+
+    out["target_age_group"] = _infer_target_age_group_from_text(
+        source_text,
+        str(out.get("target_age_group") or "unknown"),
     )
 
     summary = _clean_summary_text(str(out.get("summary") or ""))
@@ -1380,6 +1441,8 @@ def _postprocess_ai_criteria(criteria: dict, svc: dict) -> dict:
         if apply:
             fallback_parts.append(f"신청은 {apply[:100]} 방식으로 진행합니다.")
         summary = " ".join(fallback_parts)[:500]
+    # 상투 문구 정리 후 빈 문장 제거
+    summary = re.sub(r'\s{2,}', ' ', summary).strip()
     out["summary"] = summary
     return out
 

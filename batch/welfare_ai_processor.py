@@ -44,6 +44,7 @@ import json
 import time
 import re
 import hashlib
+import html as html_lib
 import requests
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -430,9 +431,98 @@ def strip_html(text: str) -> str:
     """HTML 태그 제거, <br/> → 줄바꿈"""
     if not text:
         return ""
+    text = html_lib.unescape(text)
     text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
     text = re.sub(r'<[^>]+>', '', text)
+    text = text.replace("\xa0", " ").replace("\u200b", "")
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
+
+
+_RAW_EXCLUDED_KEYS = {
+    "frstCrtPgmId", "frstCrtUsrid", "frstCrtPtm", "frstCrtUsrIpadr",
+    "lastChgPgmId", "lastChgUsrid", "lastChgPtm", "lastChgUsrIpadr",
+}
+
+
+def _clean_summary_text(summary: str) -> str:
+    if not summary:
+        return ""
+    s = strip_html(summary)
+    # 상투적인 안내문 제거 (구체정보 우선)
+    banned_patterns = [
+        r"복지로(?:에서)?\s*확인[^\.\n]*",
+        r"가까운\s*주민센터[^\.\n]*",
+        r"자세한\s*내용은[^\.\n]*",
+        r"문의하시면\s*됩니다[^\.\n]*",
+    ]
+    for p in banned_patterns:
+        s = re.sub(p, "", s, flags=re.IGNORECASE)
+    s = re.sub(r'\s+', ' ', s).strip(" ,.;")
+    return s
+
+
+def _normalize_category(category: str, service_tags: list | None, text: str) -> str:
+    c = (category or "").strip()
+    tags = [str(t) for t in (service_tags or [])]
+    full_text = (text or "").lower()
+
+    if "medical" in tags or any(k in full_text for k in ["의료", "진료", "병원", "투약", "검진", "보청기", "안경", "치료"]):
+        return "medical"
+    if any(t in tags for t in ["daily_care", "dementia"]) or any(k in full_text for k in ["돌봄", "요양", "방문요양", "간병", "목욕", "재가"]):
+        return "care"
+    if "mobility" in tags or any(k in full_text for k in ["병원동행", "교통", "택시", "차량지원"]):
+        return "mobility"
+    if any(k in full_text for k in ["주거", "임대", "집수리", "주택"]):
+        return "housing"
+    if any(k in full_text for k in ["연금", "수당", "지원금", "현금", "바우처", "생계급여"]):
+        return "finance"
+    if c in {"medical", "care", "living", "housing", "finance", "mobility"}:
+        return c
+    return "living"
+
+
+def _build_applmet_list_from_apply_place(apply_place: str) -> list[dict]:
+    txt = strip_html(apply_place)
+    if not txt:
+        return []
+    lines = [ln.strip(" -•·\t") for ln in re.split(r"\n+|(?<=\.)\s+", txt) if ln.strip()]
+    methods = []
+    for ln in lines:
+        method = "기타"
+        if any(k in ln for k in ["방문", "주민센터", "시군구", "행정복지센터"]):
+            method = "방문"
+        elif any(k in ln for k in ["온라인", "인터넷", "복지로", "홈페이지"]):
+            method = "온라인"
+        elif any(k in ln for k in ["전화", "콜센터", "문의"]):
+            method = "전화"
+        methods.append({"method": method, "description": ln})
+    # 중복 제거
+    uniq = []
+    seen = set()
+    for m in methods:
+        key = (m["method"], m["description"])
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(m)
+    return uniq
+
+
+def _build_detail_content(target_info: str, benefit_info: str, apply_place: str, outline: str = "", criteria: str = "") -> str:
+    chunks = []
+    for title, val in [
+        ("지원 대상", target_info),
+        ("선정 기준", criteria),
+        ("지원 혜택", benefit_info),
+        ("신청 방법", apply_place),
+        ("서비스 개요", outline),
+    ]:
+        cleaned = strip_html(val or "")
+        if cleaned:
+            chunks.append(f"[{title}]\n{cleaned}")
+    return "\n\n".join(chunks).strip()
 
 
 def parse_welfare_html(html: str) -> dict | None:
@@ -465,17 +555,26 @@ def parse_welfare_html(html: str) -> dict | None:
             phones = [d["wlfareInfoReldCn"] for d in dtl
                       if d.get("wlfareInfoDtlCd") == "010" and d.get("wlfareInfoReldCn")]
 
-            # detail_content = 개요 + 선정기준 합산 (AI 분류에 활용)
+            # detail_content = 신청 핵심 정보 합성
             outline = strip_html(dm.get("wlfareInfoOutlCn") or "")
             criteria = strip_html(dm.get("slctCritCn") or "")
-            if outline and criteria:
-                detail = f"{outline}\n\n[선정기준]\n{criteria}"
-            else:
-                detail = outline or criteria
+            target_info = strip_html(dm.get("wlfareSprtTrgtCn") or "")
+            benefit_info = strip_html(dm.get("wlfareSprtBnftCn") or "")
+            apply_place = strip_html(dm.get("aplyMtdDc") or "")
+            detail = _build_detail_content(
+                target_info=target_info,
+                benefit_info=benefit_info,
+                apply_place=apply_place,
+                outline=outline,
+                criteria=criteria,
+            )
+            applmet_list = _build_applmet_list_from_apply_place(apply_place)
 
             # raw_content = 모든 텍스트 필드 레이블과 함께 전체 저장
             raw_parts = []
             for key, val in dm.items():
+                if key in _RAW_EXCLUDED_KEYS:
+                    continue
                 if not isinstance(val, str) or not val.strip():
                     continue
                 cleaned = strip_html(val.strip())
@@ -483,14 +582,31 @@ def parse_welfare_html(html: str) -> dict | None:
                     continue
                 label = FIELD_LABELS.get(key, key)
                 raw_parts.append(f"[{label}]\n{cleaned}")
+            # 상세 배열(dsWlfareInfoDtl)도 함께 저장해 탭 정보 누락을 줄인다.
+            for row in dtl:
+                if not isinstance(row, dict):
+                    continue
+                label = strip_html(
+                    str(
+                        row.get("wlfareInfoDtlCdNm")
+                        or row.get("wlfareInfoDtlNm")
+                        or row.get("wlfareInfoDtlCd")
+                        or "추가정보"
+                    )
+                )
+                value = strip_html(str(row.get("wlfareInfoReldCn") or ""))
+                if not value:
+                    continue
+                raw_parts.append(f"[{label}]\n{value}")
             if phones:
                 raw_parts.append(f"[문의처]\n{', '.join(phones)}")
             raw_content = "\n\n".join(raw_parts)
 
             return {
-                "target_info": strip_html(dm.get("wlfareSprtTrgtCn") or ""),
-                "benefit_info": strip_html(dm.get("wlfareSprtBnftCn") or ""),
-                "apply_place": strip_html(dm.get("aplyMtdDc") or ""),
+                "target_info": target_info,
+                "benefit_info": benefit_info,
+                "apply_place": apply_place,
+                "applmet_list": applmet_list,
                 "detail_content": detail,
                 "inq_place": ", ".join(phones),
                 "raw_content": raw_content,
@@ -637,6 +753,7 @@ def run_phase0_detail(supabase) -> int:
                         "target_info": data["target_info"],
                         "benefit_info": data["benefit_info"],
                         "apply_place": data["apply_place"],
+                        "applmet_list": data.get("applmet_list", []),
                         "detail_content": data["detail_content"] or svc.get("description", ""),
                         "inq_place": data["inq_place"],
                         "raw_content": data["raw_content"],
@@ -798,7 +915,7 @@ def fetch_welfare_detail(welfare_id: str) -> dict | None:
             raw_content = "\n\n".join(raw_parts)
 
             return {
-                "applmet_list": applmet_list,
+                "applmet_list": applmet_list or _build_applmet_list_from_apply_place(apply_place),
                 "inq_place": inq_place,
                 "detail_content": "\n".join(detail_parts),
                 "target_info": target_info,
@@ -1063,6 +1180,7 @@ def run_phase1_web(supabase, limit: int = 250) -> int:
                     "target_info": target_info,
                     "benefit_info": benefit_info,
                     "apply_place": apply_place,
+                    "applmet_list": data.get("applmet_list", []),
                     "detail_content": detail_content,
                     "inq_place": inq_place,
                     "raw_content": raw_content,
@@ -1154,6 +1272,9 @@ EXTRACTION_RULES = """
     ② 어떤 혜택을 받는지 (금액·서비스 내용을 구체적으로, 금액은 숫자로 명시)
     ③ 어떻게 신청하는지 (방문/온라인/전화 등 간략히)
     ※ 존댓말로 작성, 전문용어 대신 쉬운 표현 사용
+    ※ "복지로에서 확인", "가까운 주민센터 문의" 같은 상투 문구는 금지
+    ※ 근거 없는 주기/금액(예: 매월, 연 n만원) 추정 금지
+    ※ 실제 데이터에 있는 신청 방법/문의처를 짧게 반영
     예: "만 65세 이상 기초생활수급자 어르신께 매달 이·미용 서비스 바우처 3만원을 드리는 사업이에요.
          소득이 적은 홀몸 어르신이라면 신청해볼 만해요. 읍면동 주민센터에 방문해서 신청하시면 돼요."
     예: "부산에 사시는 65세 이상 어르신 중 소득 하위 70% 이하라면 냉·난방비를 최대 연 30만원 지원받을 수 있어요.
@@ -1228,6 +1349,41 @@ def parse_json_response(text: str) -> dict | None:
     return None
 
 
+def _postprocess_ai_criteria(criteria: dict, svc: dict) -> dict:
+    out = dict(criteria or {})
+    source_text = _build_ai_input_text(svc)
+
+    tags = out.get("service_tags")
+    if not isinstance(tags, list):
+        tags = []
+    out["service_tags"] = [str(t) for t in tags if str(t).strip()]
+
+    out["category"] = _normalize_category(
+        str(out.get("category") or "living"),
+        out.get("service_tags"),
+        source_text,
+    )
+
+    summary = _clean_summary_text(str(out.get("summary") or ""))
+    if len(summary) < 20:
+        fallback_parts = []
+        name = str(svc.get("name") or "").strip()
+        target = str(svc.get("target_info") or "").strip()
+        benefit = str(svc.get("benefit_info") or "").strip()
+        apply = str(svc.get("apply_place") or "").strip()
+        if name:
+            fallback_parts.append(f"{name} 서비스입니다.")
+        if target:
+            fallback_parts.append(f"대상은 {target[:120]}입니다.")
+        if benefit:
+            fallback_parts.append(f"주요 혜택은 {benefit[:140]}입니다.")
+        if apply:
+            fallback_parts.append(f"신청은 {apply[:100]} 방식으로 진행합니다.")
+        summary = " ".join(fallback_parts)[:500]
+    out["summary"] = summary
+    return out
+
+
 def _build_ai_input_text(svc: dict) -> str:
     return " ".join(
         part.strip()
@@ -1278,7 +1434,7 @@ def run_phase2(supabase) -> int:
 
     result = (
         supabase.table("welfare_services")
-        .select("id, name, target_info, benefit_info, detail_content, raw_content, region")
+        .select("id, name, target_info, benefit_info, apply_place, detail_content, raw_content, region")
         .is_("filter_updated_at", "null")
         .order("id")
         .limit(1000)
@@ -1327,6 +1483,7 @@ def run_phase2(supabase) -> int:
                 print("⚠ JSON 파싱 오류")
                 parse_err += 1
             else:
+                criteria = _postprocess_ai_criteria(criteria, svc)
                 input_hash = _build_ai_input_hash(svc)
                 criteria_with_meta = dict(criteria)
                 criteria_with_meta["input_hash"] = input_hash
@@ -1384,7 +1541,7 @@ def run_phase2r(supabase) -> int:
 
     result = (
         supabase.table("welfare_services")
-        .select("id, name, target_info, benefit_info, detail_content, raw_content, region, ai_criteria, filter_confidence")
+        .select("id, name, target_info, benefit_info, apply_place, detail_content, raw_content, region, ai_criteria, filter_confidence")
         .not_.is_("filter_updated_at", "null")
         .order("filter_updated_at", desc=False)
         .order("id")
@@ -1433,6 +1590,7 @@ def run_phase2r(supabase) -> int:
                 print("⚠ JSON 파싱 오류")
                 parse_err += 1
             else:
+                criteria = _postprocess_ai_criteria(criteria, svc)
                 input_hash = _build_ai_input_hash(svc)
                 criteria_with_meta = dict(criteria)
                 criteria_with_meta["input_hash"] = input_hash

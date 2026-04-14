@@ -10,6 +10,9 @@ import '../screens/profile/profile_form_screen.dart';
 import '../screens/welfare/welfare_list_screen.dart';
 import '../screens/welfare/welfare_detail_screen.dart';
 
+import '../screens/application/application_list_screen.dart';
+import '../screens/application/application_detail_screen.dart';
+
 GoRouter createRouter(BuildContext context) {
   final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
@@ -62,6 +65,16 @@ GoRouter createRouter(BuildContext context) {
       GoRoute(
         path: '/welfare/:id',
         builder: (_, state) => WelfareDetailScreen(
+          serviceId: state.pathParameters['id']!,
+        ),
+      ),
+      GoRoute(
+        path: '/application',
+        builder: (_, __) => const ApplicationListScreen(),
+      ),
+      GoRoute(
+        path: '/application/:id',
+        builder: (_, state) => ApplicationDetailScreen(
           serviceId: state.pathParameters['id']!,
         ),
       ),

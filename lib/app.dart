@@ -7,6 +7,8 @@ import 'providers/auth_provider.dart';
 import 'providers/profile_provider.dart';
 import 'providers/welfare_standards_provider.dart';
 
+import 'providers/application_provider.dart';
+
 class CareWayApp extends StatelessWidget {
   const CareWayApp({super.key});
 
@@ -17,6 +19,14 @@ class CareWayApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => ProfileProvider()),
         ChangeNotifierProvider(create: (_) => WelfareStandardsProvider()..load()),
+        ChangeNotifierProxyProvider<AuthProvider, ApplicationProvider>(
+          create: (_) => ApplicationProvider(),
+          update: (_, auth, appProvider) {
+            final provider = appProvider ?? ApplicationProvider();
+            provider.setCurrentUser(auth.currentUser?.id);
+            return provider;
+          },
+        ),
       ],
       child: Builder(
         builder: (context) {

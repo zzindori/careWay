@@ -1,11 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/welfare_service.dart';
+import '../../models/application_record.dart';
 import '../../providers/profile_provider.dart';
+import '../../providers/application_provider.dart';
 import '../../config/app_theme.dart';
 import '../../config/secrets.dart';
 
@@ -18,11 +21,37 @@ class WelfareDetailScreen extends StatefulWidget {
 }
 
 class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
+  static const Map<String, List<String>> _subRegionsByRegion = {
+    '서울': ['강남구', '강동구', '강북구', '강서구', '관악구', '광진구', '구로구', '금천구', '노원구', '도봉구', '동대문구', '동작구', '마포구', '서대문구', '서초구', '성동구', '성북구', '송파구', '양천구', '영등포구', '용산구', '은평구', '종로구', '중구', '중랑구'],
+    '부산': ['강서구', '금정구', '기장군', '남구', '동구', '동래구', '부산진구', '북구', '사상구', '사하구', '서구', '수영구', '연제구', '영도구', '중구', '해운대구'],
+    '대구': ['군위군', '남구', '달서구', '달성군', '동구', '북구', '서구', '수성구', '중구'],
+    '인천': ['강화군', '계양구', '미추홀구', '남동구', '동구', '부평구', '서구', '연수구', '옹진군', '중구'],
+    '광주': ['광산구', '남구', '동구', '북구', '서구'],
+    '대전': ['대덕구', '동구', '서구', '유성구', '중구'],
+    '울산': ['남구', '동구', '북구', '울주군', '중구'],
+    '세종': ['세종시'],
+    '경기': ['가평군', '고양시', '과천시', '광명시', '광주시', '구리시', '군포시', '김포시', '남양주시', '동두천시', '부천시', '성남시', '수원시', '시흥시', '안산시', '안성시', '안양시', '양주시', '양평군', '여주시', '연천군', '오산시', '용인시', '의왕시', '의정부시', '이천시', '파주시', '평택시', '포천시', '하남시', '화성시'],
+    '강원': ['강릉시', '고성군', '동해시', '삼척시', '속초시', '양구군', '양양군', '영월군', '원주시', '인제군', '정선군', '철원군', '춘천시', '태백시', '평창군', '홍천군', '화천군', '횡성군'],
+    '충북': ['괴산군', '단양군', '보은군', '영동군', '옥천군', '음성군', '제천시', '증평군', '진천군', '청주시', '충주시'],
+    '충남': ['계룡시', '공주시', '금산군', '논산시', '당진시', '보령시', '부여군', '서산시', '서천군', '아산시', '예산군', '천안시', '청양군', '태안군', '홍성군'],
+    '전북': ['고창군', '군산시', '김제시', '남원시', '무주군', '부안군', '순창군', '완주군', '익산시', '임실군', '장수군', '전주시', '정읍시', '진안군'],
+    '전남': ['강진군', '고흥군', '곡성군', '광양시', '구례군', '나주시', '담양군', '목포시', '무안군', '보성군', '순천시', '신안군', '여수시', '영광군', '영암군', '완도군', '장성군', '장흥군', '진도군', '함평군', '해남군', '화순군'],
+    '경북': ['경산시', '경주시', '고령군', '구미시', '김천시', '문경시', '봉화군', '상주시', '성주군', '안동시', '영덕군', '영양군', '영주시', '영천시', '예천군', '울릉군', '울진군', '의성군', '청도군', '청송군', '칠곡군', '포항시'],
+    '경남': ['거제시', '거창군', '고성군', '김해시', '남해군', '밀양시', '사천시', '산청군', '양산시', '의령군', '진주시', '창녕군', '창원시', '통영시', '하동군', '함안군', '함양군', '합천군'],
+    '제주': ['서귀포시', '제주시'],
+  };
+
   WelfareService? _service;
   bool _isLoading = true;
   String? _error;
   bool _detailExpanded = false;
-  List<Map<String, String>> _providers = [];
+
+  bool _isValidExternalUrl(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return false;
+    final uri = Uri.tryParse(raw.trim());
+    if (uri == null) return false;
+    return uri.hasScheme && (uri.scheme == 'http' || uri.scheme == 'https');
+  }
 
   @override
   void initState() {
@@ -39,33 +68,6 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
       _isLoading = false;
       if (service == null) _error = '서비스를 찾을 수 없습니다.';
     });
-    if (service != null) _loadProviders(service);
-  }
-
-  Future<void> _loadProviders(WelfareService service) async {
-    if (kSocialServiceApiKey.isEmpty) return;
-    try {
-      final regionParam = Uri.encodeComponent(service.region.isNotEmpty ? service.region : '');
-      final uri = Uri.parse(
-        'https://api.socialservice.or.kr:444/api/service/provider/providerList'
-        '?sigunguNm=$regionParam&searchIdx=0&pageSize=10'
-        '&serviceKey=${Uri.encodeComponent(kSocialServiceApiKey)}',
-      );
-      final res = await http.get(uri).timeout(const Duration(seconds: 10));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        final list = (data['data'] as List?)
-            ?.map((p) => {
-                  'name': (p['provNm'] as String?) ?? '',
-                  'addr': (p['addr'] as String?) ?? '',
-                  'phone': (p['telNo'] as String?) ?? '',
-                })
-            .where((p) => p['name']!.isNotEmpty)
-            .cast<Map<String, String>>()
-            .toList();
-        if (mounted && list != null) setState(() => _providers = list);
-      }
-    } catch (_) {}
   }
 
   @override
@@ -140,13 +142,37 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
             ),
           ],
 
+          const SizedBox(height: 16),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF5F7FA),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE0E6ED)),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.fact_check_outlined, size: 14, color: AppTheme.textSecondary),
+                SizedBox(width: 6),
+                Text(
+                  '신청 핵심 정보',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
           // ── 해당 사유 ──────────────────────────────────
           if (matchReasons.isNotEmpty) ...[
             const SizedBox(height: 20),
             _section(
               title: '해당 사유',
               icon: Icons.check_circle_outline,
-              iconColor: Colors.green,
               child: Wrap(
                 spacing: 8,
                 runSpacing: 6,
@@ -169,7 +195,12 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
           _section(
             title: '지원 대상',
             icon: Icons.group_outlined,
-            child: _textOrPending(service.targetInfo),
+            child: _textOrPending(
+              _firstNonEmpty([
+                service.targetInfo,
+                _extractSection(service.rawContent, ['지원 대상', 'wlfareSprtTrgtCn']),
+              ]),
+            ),
           ),
 
           // ── 지원 내용 ──────────────────────────────────
@@ -178,8 +209,12 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
             title: '지원 내용',
             icon: Icons.card_giftcard_outlined,
             child: _textOrPending(
-              (service.benefitInfo.contains('복지로') || service.benefitInfo.length < 10)
-                  ? '' : service.benefitInfo,
+              _firstNonEmpty([
+                (service.benefitInfo.contains('복지로') || service.benefitInfo.length < 10)
+                    ? ''
+                    : service.benefitInfo,
+                _extractSection(service.rawContent, ['지원 혜택', 'wlfareSprtBnftCn', '서비스 개요', 'wlfareInfoOutlCn']),
+              ]),
             ),
           ),
 
@@ -190,10 +225,21 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
             icon: Icons.how_to_reg_outlined,
             child: service.applmetList.isNotEmpty
                 ? _applyMethods(service.applmetList)
-                : service.applyPlace.isNotEmpty
-                    ? Text(service.applyPlace,
-                        style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary, height: 1.5))
-                    : _pendingText(),
+                : Builder(
+                    builder: (_) {
+                      final applyText = _formatCardText(
+                        _firstNonEmpty([
+                          service.applyPlace,
+                          _extractSection(service.rawContent, ['신청 방법', 'aplyMtdDc']),
+                        ]),
+                      );
+                      if (applyText.isEmpty) return _pendingText();
+                      return Text(
+                        applyText,
+                        style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary, height: 1.5),
+                      );
+                    },
+                  ),
           ),
 
           // ── 신청 서류 ──────────────────────────────────
@@ -205,16 +251,11 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
               child: _section(
                 title: '신청 서류',
                 icon: Icons.folder_outlined,
-                iconColor: const Color(0xFF4527A0),
                 child: Text(docs, style: const TextStyle(
                     fontSize: 14, color: AppTheme.textPrimary, height: 1.6)),
               ),
             );
           }),
-
-          // ── 원문 안내 ──────────────────────────────────
-          const SizedBox(height: 12),
-          _buildRawContentCard(service),
 
           // ── 문의처 ─────────────────────────────────────
           const SizedBox(height: 12),
@@ -226,17 +267,40 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
                 : _pendingText(),
           ),
 
-          // ── 우리 지역 제공기관 ──────────────────────────
-          if (_providers.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _buildProvidersSection(),
-          ],
+          // ── 원문 안내 ──────────────────────────────────
+          const SizedBox(height: 12),
+          _buildRawContentCard(service),
 
           const SizedBox(height: 24),
+
+          // ── 복지로 바로가기 ────────────────────────────
+          if (_isValidExternalUrl(service.onlineUrl))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  final uri = Uri.parse(service.onlineUrl!.trim());
+                  if (await canLaunchUrl(uri)) launchUrl(uri, mode: LaunchMode.externalApplication);
+                },
+                icon: const Icon(Icons.open_in_new, size: 18),
+                label: const Text('복지로에서 자세히 보기'),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 52),
+                  backgroundColor: const Color(0xFF1565C0),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+
           OutlinedButton.icon(
-            onPressed: () {},
-            icon: const Icon(Icons.bookmark_add_outlined),
-            label: const Text('신청 현황에 추가'),
+            onPressed: () => _handleApplicationButton(context, service),
+            icon: Icon(context.watch<ApplicationProvider>().contains(service.id)
+                ? Icons.assignment_outlined
+                : Icons.bookmark_add_outlined),
+            label: Text(context.watch<ApplicationProvider>().contains(service.id)
+                ? '신청 관리 보기'
+                : '신청 관리 추가'),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size(double.infinity, 52),
               foregroundColor: AppTheme.primary,
@@ -246,86 +310,6 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
           ),
           const SizedBox(height: 24),
         ],
-      ),
-    );
-  }
-
-  // ─── 우리 지역 제공기관 ────────────────────────────────────────
-
-  Widget _buildProvidersSection() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.divider),
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          const Icon(Icons.location_on_outlined, size: 16, color: AppTheme.primary),
-          const SizedBox(width: 6),
-          const Text('우리 지역 제공기관',
-              style: TextStyle(
-                  fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w600)),
-        ]),
-        const SizedBox(height: 12),
-        ..._providers.map(_buildProviderCard),
-      ]),
-    );
-  }
-
-  Widget _buildProviderCard(Map<String, String> p) {
-    final name = p['name'] ?? '';
-    final addr = p['addr'] ?? '';
-    final phone = p['phone'] ?? '';
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade50,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.grey.shade200),
-        ),
-        child: Row(children: [
-          const Icon(Icons.business_outlined, size: 18, color: AppTheme.textSecondary),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(name,
-                  style: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
-              if (addr.isNotEmpty) ...[
-                const SizedBox(height: 2),
-                Text(addr,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-              ],
-            ]),
-          ),
-          if (phone.isNotEmpty)
-            GestureDetector(
-              onTap: () => _confirmCall(phone),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppTheme.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.phone, size: 14, color: AppTheme.primary),
-                  const SizedBox(width: 4),
-                  Text('연결',
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.primary,
-                          fontWeight: FontWeight.w600)),
-                ]),
-              ),
-            ),
-        ]),
       ),
     );
   }
@@ -371,6 +355,19 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
     'wlfareSprtTrgtSlcrCn': '선정 기준',  // 선정 기준 없을 때 폴백
   };
 
+  static const _sectionOrder = <String, int>{
+    '지원 대상': 0,
+    '선정 기준': 1,
+    '지원 혜택': 2,
+    '서비스 개요': 3,
+    '서비스 요약': 4,
+    '신청 방법': 5,
+    '신청 서류': 6,
+    '문의처': 7,
+    '담당 부서': 8,
+    '소재지': 9,
+  };
+
   /// rawContent에서 특정 레이블의 내용을 추출 (여러 레이블 중 첫 번째 매칭)
   String _extractSection(String raw, List<String> labels) {
     final pattern = RegExp(r'\[([^\]]+)\]\n([\s\S]*?)(?=\n\n\[|$)');
@@ -404,6 +401,14 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
     final hasRaw = service.rawContent.isNotEmpty;
     final hasDetail = service.detailContent.isNotEmpty;
     if (!hasRaw && !hasDetail) return const SizedBox.shrink();
+    final sections = hasRaw ? _parseRawSections(service.rawContent) : const <MapEntry<String, String>>[];
+    final sortedSections = [...sections]
+      ..sort((a, b) {
+        final ai = _sectionOrder[a.key] ?? 999;
+        final bi = _sectionOrder[b.key] ?? 999;
+        if (ai != bi) return ai.compareTo(bi);
+        return a.key.compareTo(b.key);
+      });
 
     return Container(
       width: double.infinity,
@@ -423,7 +428,7 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
               const Icon(Icons.article_outlined, size: 16, color: AppTheme.primary),
               const SizedBox(width: 6),
               const Expanded(
-                child: Text('원문 전체 보기',
+                child: Text('원문 상세 보기',
                     style: TextStyle(
                         fontSize: 13,
                         color: AppTheme.textSecondary,
@@ -444,14 +449,33 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: hasRaw
-                ? _buildParsedSections(_parseRawSections(service.rawContent))
-                : Text(service.detailContent,
+                ? SelectableText(
+                    _buildRawTextView(sortedSections),
                     style: const TextStyle(
-                        fontSize: 14, color: AppTheme.textPrimary, height: 1.6)),
+                      fontSize: 13,
+                      color: AppTheme.textPrimary,
+                      height: 1.6,
+                    ),
+                  )
+                : Text(
+                    service.detailContent,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: AppTheme.textPrimary,
+                      height: 1.6,
+                    ),
+                  ),
           ),
         ],
       ]),
     );
+  }
+
+  String _buildRawTextView(List<MapEntry<String, String>> sections) {
+    if (sections.isEmpty) return '';
+    return sections
+        .map((s) => '[${s.key}]\n${_decodeHtmlEntities(s.value.trim())}')
+        .join('\n\n');
   }
 
   Widget _buildParsedSections(List<MapEntry<String, String>> sections) {
@@ -543,6 +567,46 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
     );
   }
 
+  Future<void> _handleApplicationButton(BuildContext context, WelfareService service) async {
+    final appProvider = context.read<ApplicationProvider>();
+    if (appProvider.contains(service.id)) {
+      context.push('/application/${service.id}');
+      return;
+    }
+    // 서류 목록 추출 (rawContent에서 파싱)
+    final docsRaw = _extractSection(service.rawContent, ['신청 서류', 'rqutPdFrmCn']);
+    final docs = docsRaw.isNotEmpty
+        ? docsRaw.split(RegExp(r'\n|,|·|•')).map((s) => s.trim()).where((s) => s.isNotEmpty).toList()
+        : <String>[];
+
+    // 전화번호 추출
+    final phoneMatch = RegExp(r'[\d]{2,4}-[\d]{3,4}-[\d]{4}').firstMatch(service.inqPlace);
+    final phone = phoneMatch?.group(0) ?? '';
+
+    final record = ApplicationRecord(
+      serviceId: service.id,
+      serviceName: service.name,
+      category: service.category,
+      savedAt: DateTime.now(),
+      phone: phone,
+      address: service.applyPlace,
+      onlineUrl: service.onlineUrl,
+      docs: docs,
+      checkedDocs: List.filled(docs.length, false),
+    );
+    await appProvider.add(record);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('신청 관리에 추가되었습니다.'),
+          action: SnackBarAction(label: '보기', onPressed: () => context.push('/application/${service.id}')),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
   Future<void> _confirmCall(String phone) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -571,7 +635,6 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
     required String title,
     required IconData icon,
     required Widget child,
-    Color? iconColor,
   }) {
     return Container(
       width: double.infinity,
@@ -583,11 +646,13 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Icon(icon, size: 16, color: iconColor ?? AppTheme.primary),
+          Icon(icon, size: 16, color: AppTheme.primary),
           const SizedBox(width: 6),
           Text(title,
               style: const TextStyle(
-                  fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w600)),
+                  fontSize: 13,
+                  color: AppTheme.textSecondary,
+                  fontWeight: FontWeight.w700)),
         ]),
         const SizedBox(height: 10),
         child,
@@ -596,9 +661,93 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
   }
 
   Widget _textOrPending(String text) {
-    return text.trim().isNotEmpty
-        ? Text(text, style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary, height: 1.6))
+    final formatted = _formatCardText(text);
+    return formatted.isNotEmpty
+        ? Text(formatted, style: const TextStyle(fontSize: 13, color: AppTheme.textPrimary, height: 1.6))
         : _pendingText();
+  }
+
+  String _firstNonEmpty(List<String> values) {
+    for (final v in values) {
+      final t = v.trim();
+      if (t.isNotEmpty) return t;
+    }
+    return '';
+  }
+
+  String _formatCardText(String raw) {
+    var text = _decodeHtmlEntities(raw).replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
+    if (text.isEmpty) return '';
+
+    text = text.replaceAll(RegExp(r'[ \t]+'), ' ');
+    text = text.replaceAll(RegExp(r'\n{3,}'), '\n\n');
+
+    final lines = text.split('\n');
+    final out = <String>[];
+    final numbered = RegExp(r'^\s*(\d+[\)\.])\s*(.+)$');
+    final bullet = RegExp(r'^\s*[-•·]\s*(.+)$');
+    bool previousWasListItem = false;
+
+    for (final line in lines) {
+      final ln = line.trim();
+      if (ln.isEmpty) {
+        if (out.isNotEmpty && out.last.isNotEmpty) out.add('');
+        previousWasListItem = false;
+        continue;
+      }
+
+      final n = numbered.firstMatch(ln);
+      if (n != null) {
+        final marker = n.group(1)!; // 1) / 1. 형태 그대로 유지
+        out.add('$marker ${n.group(2)}');
+        previousWasListItem = true;
+        continue;
+      }
+
+      final b = bullet.firstMatch(ln);
+      if (b != null) {
+        out.add('• ${b.group(1)}');
+        previousWasListItem = true;
+        continue;
+      }
+
+      // 번호/불릿 다음 줄은 같은 항목의 continuation으로 들여쓰기
+      if (previousWasListItem) {
+        // 고정 공백 대신 NBSP를 써서 들여쓰기가 눈에 보이게 유지되도록 한다.
+        out.add('\u00A0\u00A0\u00A0$ln');
+      } else {
+        out.add(ln);
+      }
+    }
+
+    final joined = out.join('\n').replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
+    return joined;
+  }
+
+  String _decodeHtmlEntities(String text) {
+    if (text.isEmpty) return text;
+    var out = text
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('&middot;', '·')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'");
+
+    out = out.replaceAllMapped(RegExp(r'&#(\d+);'), (m) {
+      final code = int.tryParse(m.group(1)!);
+      if (code == null) return m.group(0)!;
+      return String.fromCharCode(code);
+    });
+
+    out = out.replaceAllMapped(RegExp(r'&#x([0-9a-fA-F]+);'), (m) {
+      final code = int.tryParse(m.group(1)!, radix: 16);
+      if (code == null) return m.group(0)!;
+      return String.fromCharCode(code);
+    });
+
+    return out;
   }
 
   Widget _pendingText() {
@@ -613,24 +762,37 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: methods.map((m) {
-        final name = m['method'] ?? '';
-        final desc = m['description'] ?? '';
+        final name = _formatCardText(m['method'] ?? '');
+        final desc = _formatCardText(m['description'] ?? '');
         return Padding(
-          padding: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.only(bottom: 12),
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Padding(
-              padding: EdgeInsets.only(top: 2),
-              child: Icon(Icons.arrow_right, color: AppTheme.primary, size: 20),
+              padding: EdgeInsets.only(top: 1),
+              child: Icon(Icons.arrow_right, color: AppTheme.primary, size: 18),
             ),
             const SizedBox(width: 4),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               if (name.isNotEmpty)
-                Text(name, style: const TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
+                Text(
+                  name,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.textPrimary,
+                    height: 1.5,
+                  ),
+                ),
               if (desc.isNotEmpty) ...[
-                const SizedBox(height: 2),
-                Text(desc, style: const TextStyle(
-                    fontSize: 12, color: AppTheme.textSecondary, height: 1.5)),
+                const SizedBox(height: 4),
+                Text(
+                  desc,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppTheme.textPrimary,
+                    height: 1.6,
+                  ),
+                ),
               ],
             ])),
           ]),
@@ -663,7 +825,9 @@ class _WelfareDetailScreenState extends State<WelfareDetailScreen> {
     ];
 
     String targetAge = service.targetAgeGroup;
+    String targetGender = service.gender;
     String region = service.region;
+    String subRegion = service.subRegion;
     int? minAge = service.minAge > 0 ? service.minAge : null;
     int maxIncome = service.maxIncomeLevel;
     bool ltcGrade = service.requiresLtcGrade;
@@ -745,7 +909,9 @@ ${raw.isNotEmpty ? '원문:\n$raw' : ''}
 반환할 JSON 형식:
 {
   "target_age_group": "elderly",  // unknown/elderly/adult/child/veteran/disabled/all 중 하나
+  "gender": "any",  // any/male/female 중 하나
   "region": "전국",  // 전국/서울/부산/대구/인천/광주/대전/울산/세종/경기/강원/충북/충남/전북/전남/경북/경남/제주 중 하나
+  "sub_region": "",  // 시/군/구 (예: 옥천군, 없으면 "")
   "min_age": null,  // 최소 신청 나이 (숫자 또는 null)
   "max_income_level": 10,  // 소득분위 1~10 (제한 없으면 10)
   "requires_ltc_grade": false,  // 장기요양등급 필요 여부
@@ -776,7 +942,10 @@ ${raw.isNotEmpty ? '원문:\n$raw' : ''}
                           final j = jsonDecode(text) as Map<String, dynamic>;
                           setSt(() {
                             targetAge = j['target_age_group'] as String? ?? targetAge;
+                            targetGender = j['gender'] as String? ?? targetGender;
                             region = j['region'] as String? ?? region;
+                            final aiSubRegion = (j['sub_region'] as String? ?? '').trim();
+                            subRegion = aiSubRegion;
                             minAge = j['min_age'] as int?;
                             maxIncome = (j['max_income_level'] as int?) ?? maxIncome;
                             ltcGrade = j['requires_ltc_grade'] as bool? ?? ltcGrade;
@@ -843,11 +1012,65 @@ ${raw.isNotEmpty ? '원문:\n$raw' : ''}
                     return ChoiceChip(
                       label: Text(r, style: const TextStyle(fontSize: 12)),
                       selected: sel,
-                      onSelected: (_) => setSt(() => region = r),
+                      onSelected: (_) => setSt(() {
+                        region = r;
+                        final subs = _subRegionsByRegion[region] ?? const <String>[];
+                        if (!subs.contains(subRegion)) {
+                          subRegion = '';
+                        }
+                      }),
                       selectedColor: Colors.deepPurple.withValues(alpha: 0.15),
                       labelStyle: TextStyle(
                         color: sel ? Colors.deepPurple : AppTheme.textSecondary,
                         fontWeight: sel ? FontWeight.w700 : FontWeight.normal,
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+
+                _adminLabel('시/군/구'),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: (_subRegionsByRegion[region] ?? const <String>[])
+                          .contains(subRegion)
+                      ? subRegion
+                      : null,
+                  decoration: _adminInputDeco('시/군/구 선택 (없으면 비워둠)'),
+                  items: [
+                    const DropdownMenuItem(value: '', child: Text('선택 안함')),
+                    ...(_subRegionsByRegion[region] ?? const <String>[])
+                        .map((s) => DropdownMenuItem(value: s, child: Text(s))),
+                    if (subRegion.isNotEmpty &&
+                        !(_subRegionsByRegion[region] ?? const <String>[])
+                            .contains(subRegion))
+                      DropdownMenuItem(value: subRegion, child: Text(subRegion)),
+                  ],
+                  onChanged: (v) => setSt(() => subRegion = v ?? ''),
+                ),
+                const SizedBox(height: 16),
+
+                // gender
+                _adminLabel('대상 성별'),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: const [
+                    ('any', '전체'),
+                    ('male', '남성'),
+                    ('female', '여성'),
+                  ].map((g) {
+                    final sel = targetGender == g.$1;
+                    return ChoiceChip(
+                      label: Text(g.$2),
+                      selected: sel,
+                      onSelected: (_) => setSt(() => targetGender = g.$1),
+                      selectedColor: Colors.deepPurple.withValues(alpha: 0.15),
+                      labelStyle: TextStyle(
+                        color: sel ? Colors.deepPurple : AppTheme.textSecondary,
+                        fontWeight: sel ? FontWeight.w700 : FontWeight.normal,
+                        fontSize: 13,
                       ),
                     );
                   }).toList(),
@@ -912,7 +1135,9 @@ ${raw.isNotEmpty ? '원문:\n$raw' : ''}
                             .from('welfare_services')
                             .update({
                               'target_age_group': targetAge,
+                              'gender': targetGender,
                               'region': region,
+                              'sub_region': subRegion.trim(),
                               'min_age': minAge,
                               'max_income_level': maxIncome,
                               'requires_ltc_grade': ltcGrade,

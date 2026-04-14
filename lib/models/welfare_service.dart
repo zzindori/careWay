@@ -23,11 +23,14 @@ class WelfareService {
   final bool requiresBasicRecipient;
   final bool requiresVeteran;    // 보훈대상자 필수
   final bool requiresDisability; // 장애인 전용
+  final String gender;            // any / male / female
 
   // AI 분류 필드
   final String targetAgeGroup;  // elderly/youth/child/infant/adult/veteran/disabled/all/unknown
   final String region;           // 서울 / 경기 / 전국 등
+  final String subRegion;        // 시/군/구 (예: 옥천군)
   final List<String> serviceTags; // dementia/mobility/daily_care/hearing/vision/medical
+  final List<String> searchTokens; // 배치 생성 검색 토큰
 
   // 배치 수집된 상세 정보
   final List<Map<String, String>> applmetList;
@@ -57,9 +60,12 @@ class WelfareService {
     this.requiresBasicRecipient = false,
     this.requiresVeteran = false,
     this.requiresDisability = false,
+    this.gender = 'any',
     this.targetAgeGroup = 'unknown',
     this.region = '',
+    this.subRegion = '',
     this.serviceTags = const [],
+    this.searchTokens = const [],
     this.applmetList = const [],
     this.inqPlace = '',
     this.detailContent = '',
@@ -157,6 +163,27 @@ class WelfareService {
     return _normalizeRegion(region) == _normalizeRegion(profileRegion);
   }
 
+  bool _subRegionMatches(String profileSubRegion) {
+    final sub = profileSubRegion.trim();
+    if (sub.isEmpty) return true;
+    final normalizedSub = sub.replaceAll(' ', '');
+
+    // DB에 시군구가 채워진 경우 해당 값을 우선 사용
+    if (subRegion.trim().isNotEmpty) {
+      return subRegion.replaceAll(' ', '') == normalizedSub;
+    }
+
+    // 과거 데이터/누락 데이터는 텍스트 기반 폴백
+    final text = '$name $targetInfo $applyPlace $detailContent $rawContent';
+    final matches = RegExp(r'([가-힣]{2,}(?:시|군|구))')
+        .allMatches(text)
+        .map((m) => m.group(1) ?? '')
+        .where((e) => e.isNotEmpty)
+        .toSet();
+    if (matches.isEmpty) return true;
+    return matches.any((m) => m.replaceAll(' ', '') == normalizedSub);
+  }
+
   // ─── 자격 검사 ───────────────────────────────────────────
 
   List<String> getMismatchReasons(ParentProfile profile) {
@@ -171,6 +198,9 @@ class WelfareService {
     // 지역
     if (!_regionMatches(profile.region)) {
       reasons.add('$region 지역 서비스');
+    }
+    if (_regionMatches(profile.region) && !_subRegionMatches(profile.subRegion)) {
+      reasons.add('${profile.subRegion} 대상 아님');
     }
     // 소득
     if (maxIncomeLevel < 10 && incomeLevel > maxIncomeLevel) {
@@ -187,6 +217,12 @@ class WelfareService {
     // 기초수급
     if (requiresBasicRecipient && !profile.isBasicRecipient) {
       reasons.add('기초생활수급자 전용');
+    }
+    // 성별
+    if (gender == 'male' && profile.gender == 'female') {
+      reasons.add('남성 대상 서비스');
+    } else if (gender == 'female' && profile.gender == 'male') {
+      reasons.add('여성 대상 서비스');
     }
 
     return reasons;
@@ -221,6 +257,11 @@ class WelfareService {
     if (profile.isVeteran && (targetAgeGroup == 'veteran' || requiresVeteran)) {
       reasons.add('보훈대상자');
     }
+    if (gender == 'male') {
+      reasons.add('남성 대상');
+    } else if (gender == 'female') {
+      reasons.add('여성 대상');
+    }
     return reasons;
   }
 
@@ -246,6 +287,11 @@ class WelfareService {
 
     // 지역 불일치 → 숨김
     if (!_regionMatches(profile.region)) return 0;
+    // 시군구 불일치 → 숨김 (서비스에 시군구 단서가 있는 경우에만)
+    if (!_subRegionMatches(profile.subRegion)) return 0;
+    // 성별 불일치 → 숨김 (성별 미확인 프로필은 통과)
+    if (gender == 'male' && profile.gender == 'female') return 0;
+    if (gender == 'female' && profile.gender == 'male') return 0;
 
     // ── 개별 조건 평가 ────────────────────────────────────
     final incomeLevel = profile.incomeLevel ?? 10;
@@ -306,9 +352,15 @@ class WelfareService {
       requiresBasicRecipient: json['requires_basic_recipient'] as bool? ?? false,
       requiresVeteran: json['requires_veteran'] as bool? ?? false,
       requiresDisability: json['requires_disability'] as bool? ?? false,
+      gender: json['gender'] as String? ?? 'any',
       targetAgeGroup: json['target_age_group'] as String? ?? 'unknown',
       region: json['region'] as String? ?? '',
+      subRegion: json['sub_region'] as String? ?? '',
       serviceTags: (json['service_tags'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
+      searchTokens: (json['search_tokens'] as List<dynamic>?)
               ?.map((e) => e as String)
               .toList() ??
           [],

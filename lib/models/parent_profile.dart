@@ -6,6 +6,7 @@ class ParentProfile {
   final String region;        // 시도
   final String subRegion;     // 시군구
   final String healthStatus;  // good / fair / poor
+  final String gender;        // male / female / unknown
 
   // 장기요양등급 상태: 'has' / 'applying' / 'none'
   final String ltcGradeStatus;
@@ -33,6 +34,7 @@ class ParentProfile {
     required this.region,
     required this.subRegion,
     this.healthStatus = 'good',
+    this.gender = 'unknown',
     this.ltcGradeStatus = 'none',
     this.ltcGrade,
     this.incomeLevel,
@@ -65,6 +67,7 @@ class ParentProfile {
       region: json['region'] as String,
       subRegion: json['sub_region'] as String,
       healthStatus: json['health_status'] as String? ?? 'good',
+      gender: json['gender'] as String? ?? 'unknown',
       ltcGradeStatus: ltcStatus,
       ltcGrade: json['ltc_grade'] as int?,
       incomeLevel: json['income_level'] as int?,
@@ -92,6 +95,7 @@ class ParentProfile {
       'region': region,
       'sub_region': subRegion,
       'health_status': healthStatus,
+      'gender': gender,
       'ltc_grade_status': ltcGradeStatus,
       'has_ltc_grade': hasLtcGrade,  // 기존 컬럼 호환
       'ltc_grade': ltcGrade,
@@ -111,6 +115,7 @@ class ParentProfile {
     String? region,
     String? subRegion,
     String? healthStatus,
+    String? gender,
     String? ltcGradeStatus,
     int? ltcGrade,
     int? incomeLevel,
@@ -127,6 +132,7 @@ class ParentProfile {
       region: region ?? this.region,
       subRegion: subRegion ?? this.subRegion,
       healthStatus: healthStatus ?? this.healthStatus,
+      gender: gender ?? this.gender,
       ltcGradeStatus: ltcGradeStatus ?? this.ltcGradeStatus,
       ltcGrade: ltcGrade ?? this.ltcGrade,
       incomeLevel: incomeLevel ?? this.incomeLevel,

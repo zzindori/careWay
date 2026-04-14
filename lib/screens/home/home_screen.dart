@@ -8,6 +8,8 @@ import '../../models/welfare_service.dart';
 import '../../config/app_theme.dart';
 import '../../widgets/profile_card.dart';
 
+import '../../providers/application_provider.dart';
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -16,6 +18,33 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  Future<void> _confirmDeleteProfile(ParentProfile profile) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('부모님 프로필 삭제'),
+        content: Text('${profile.name} 프로필을 삭제할까요?\n삭제 후 되돌릴 수 없습니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('삭제', style: TextStyle(color: Color(0xFFD32F2F))),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted || profile.id == null) return;
+
+    await context.read<ProfileProvider>().deleteProfile(profile.id!);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${profile.name} 프로필을 삭제했습니다.')),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -51,6 +80,31 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('CareWay'),
         actions: [
+          Consumer<ApplicationProvider>(
+            builder: (_, appProvider, __) {
+              final count = appProvider.records.length;
+              return Stack(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.assignment_outlined),
+                    tooltip: '신청 관리',
+                    onPressed: () => context.push('/application'),
+                  ),
+                  if (count > 0)
+                    Positioned(
+                      right: 6, top: 6,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: AppTheme.primary, shape: BoxShape.circle),
+                        child: Text('$count',
+                            style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.logout_outlined),
             onPressed: () => context.read<AuthProvider>().signOut(),
@@ -150,6 +204,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 context.push('/welfare');
               },
               onEdit: () => context.push('/profile/edit/${profile.id}'),
+              onDelete: () => _confirmDeleteProfile(profile),
             ),
           );
         }),

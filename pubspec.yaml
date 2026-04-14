@@ -35,6 +35,8 @@ dependencies:
 
   # 로컬 알림
   flutter_local_notifications: ^18.0.0
+  xml: ^6.6.1
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:

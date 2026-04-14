@@ -202,6 +202,23 @@ class WelfareCard extends StatelessWidget {
                     color: _difficultyColor(service.difficulty),
                   ),
                 ),
+                if (service.aiSummary.isNotEmpty) ...[
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8F5E9),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFA5D6A7)),
+                    ),
+                    child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.auto_awesome, size: 10, color: Color(0xFF388E3C)),
+                      SizedBox(width: 3),
+                      Text('AI 요약', style: TextStyle(
+                          fontSize: 10, color: Color(0xFF388E3C), fontWeight: FontWeight.w600)),
+                    ]),
+                  ),
+                ],
               ],
             ),
           ],

@@ -110,6 +110,33 @@ class ProfileProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> deleteProfile(String profileId) async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      await _client.from('parent_profiles').delete().eq('id', profileId);
+
+      _profiles.removeWhere((p) => p.id == profileId);
+      if (_selectedProfile?.id == profileId) {
+        _selectedProfile = _profiles.isNotEmpty ? _profiles.first : null;
+      }
+
+      if (_selectedProfile == null) {
+        _tier1Services = [];
+        _tier2Services = [];
+        _tier3Services = [];
+      } else {
+        await matchWelfareServices(_selectedProfile!);
+      }
+    } catch (e) {
+      _error = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   // 시도명 정규화 (서울특별시 → 서울, 경기도 → 경기)
   static String normalizeRegion(String r) {
     if (r.contains('서울')) return '서울';

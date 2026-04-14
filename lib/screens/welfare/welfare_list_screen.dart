@@ -1,9 +1,9 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:xml/xml.dart';
 import '../../providers/profile_provider.dart';
 import '../../models/welfare_service.dart';
 import '../../config/app_theme.dart';
@@ -19,6 +19,8 @@ class WelfareListScreen extends StatefulWidget {
 
 class _WelfareListScreenState extends State<WelfareListScreen> {
   String _selectedCategory = 'all';
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _searchQuery = '';
   bool _isRefreshing = false;
   List<Map<String, String>> _localProviders = [];
   bool _providersLoading = false;
@@ -57,6 +59,68 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
     });
   }
 
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  String _normalizeSearchText(String input) {
+    return input
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^0-9a-zA-Z가-힣\s]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  List<String> _queryTokens(String query) {
+    final normalized = _normalizeSearchText(query.replaceAll('#', ''));
+    if (normalized.isEmpty) return const [];
+    return normalized
+        .split(' ')
+        .map((t) => t.trim())
+        .where((t) => t.isNotEmpty)
+        .toList();
+  }
+
+  bool _matchesSearch(WelfareService s) {
+    final tokens = _queryTokens(_searchQuery);
+    if (tokens.isEmpty) return true;
+
+    final searchableFields = <String>[
+      s.name,
+      s.targetInfo,
+      s.benefitInfo,
+      s.aiSummary,
+      s.description,
+      s.applyPlace,
+      s.categoryLabel,
+      s.region,
+      s.subRegion,
+      ...s.serviceTags,
+    ];
+    final normalizedText = _normalizeSearchText(searchableFields.join(' '));
+
+    final normalizedSearchTokens = s.searchTokens
+        .map((e) => _normalizeSearchText(e))
+        .where((e) => e.isNotEmpty)
+        .toSet();
+    final normalizedTextTokens = normalizedText.split(' ').where((e) => e.isNotEmpty).toSet();
+
+    for (final token in tokens) {
+      final isShortToken = token.length <= 2;
+      final inSearchTokens = isShortToken
+          ? normalizedSearchTokens.contains(token)
+          : (normalizedSearchTokens.contains(token) ||
+              normalizedSearchTokens.any((t) => t.contains(token)));
+      final inText = isShortToken
+          ? normalizedTextTokens.contains(token)
+          : normalizedText.contains(token);
+      if (!inSearchTokens && !inText) return false;
+    }
+    return true;
+  }
+
   Future<void> _refresh() async {
     if (_isRefreshing) return;
     setState(() => _isRefreshing = true);
@@ -72,8 +136,49 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
   }
 
   List<WelfareService> _filter(List<WelfareService> list) {
-    if (_selectedCategory == 'all') return list;
-    return list.where((s) => s.category == _selectedCategory).toList();
+    return list.where((s) {
+      if (!_matchesSearch(s)) return false;
+
+      if (_selectedCategory == 'all') return true;
+
+      // 배치 AI 분류가 덜 된 데이터 보완:
+      // 카테고리별 신호를 기반으로 "대표 카테고리"를 하나 정해 중복 노출을 막는다.
+      final text = '${s.name} ${s.description} ${s.targetInfo} ${s.benefitInfo}';
+      final careKeywords = ['돌봄', '요양', '방문요양', '간병', '목욕', '식사', '일상생활', '재가'];
+      final hasCareKeyword = careKeywords.any(text.contains);
+      final hasCareTag = s.serviceTags.any((t) => t == 'daily_care' || t == 'dementia');
+      final hasStrongCareSignal = s.requiresLtcGrade || hasCareTag || hasCareKeyword;
+      final medicalKeywords = ['의료', '치료', '병원', '약제', '투약', '건강검진', '진료', '보청기', '안경'];
+      final hasMedicalKeyword = medicalKeywords.any(text.contains);
+      final hasMedicalTag = s.serviceTags.any((t) => t == 'medical' || t == 'hearing' || t == 'vision');
+      final hasStrongMedicalSignal = hasMedicalTag || hasMedicalKeyword;
+      final housingKeywords = ['주거', '임대', '집수리', '주택개조', '주택', '전세', '월세'];
+      final hasHousingSignal = housingKeywords.any(text.contains);
+      final livingKeywords = ['생활', '식품', '문화', '여가', '교육', '통신비', '이동전화', '냉난방', '생필품'];
+      final hasLivingSignal = livingKeywords.any(text.contains);
+      final financeKeywords = ['연금', '수당', '현금', '바우처', '생계급여', '지원금', '급여'];
+      final hasFinanceSignal = financeKeywords.any(text.contains);
+      final mobilityKeywords = ['교통', '이동', '병원동행', '차량', '버스', '택시'];
+      final hasMobilityTag = s.serviceTags.any((t) => t == 'mobility');
+      final hasMobilitySignal = hasMobilityTag || mobilityKeywords.any(text.contains);
+
+      String effectiveCategory = s.category;
+      if (hasStrongCareSignal) {
+        effectiveCategory = 'care';
+      } else if (hasStrongMedicalSignal) {
+        effectiveCategory = 'medical';
+      } else if (hasHousingSignal) {
+        effectiveCategory = 'housing';
+      } else if (hasLivingSignal) {
+        effectiveCategory = 'living';
+      } else if (hasFinanceSignal) {
+        effectiveCategory = 'finance';
+      } else if (hasMobilitySignal) {
+        effectiveCategory = 'mobility';
+      }
+
+      return effectiveCategory == _selectedCategory;
+    }).toList();
   }
 
   Future<void> _loadLocalProviders(String category, String region) async {
@@ -91,16 +196,13 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
       );
       final res = await http.get(uri).timeout(const Duration(seconds: 10));
       if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        final list = (data['data'] as List? ?? [])
-            .map((p) => {
-                  'name': (p['provNm'] as String?) ?? '',
-                  'addr': (p['addr'] as String?) ?? '',
-                  'phone': (p['telNo'] as String?) ?? '',
-                })
-            .where((p) => p['name']!.isNotEmpty)
-            .cast<Map<String, String>>()
-            .toList();
+        final doc = XmlDocument.parse(res.body);
+        final items = doc.findAllElements('item');
+        final list = items.map((item) {
+          String txt(String tag) =>
+              item.findElements(tag).firstOrNull?.innerText.trim() ?? '';
+          return {'name': txt('provNm'), 'addr': txt('addr'), 'phone': txt('telNo')};
+        }).where((p) => p['name']!.isNotEmpty).toList();
         if (mounted) setState(() => _localProviders = list);
       }
     } catch (_) {}
@@ -160,6 +262,7 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
             return Column(
               children: [
                 _buildCategoryFilter(),
+                _buildSearchBar(),
                 Expanded(
                   child: CustomScrollView(
                     slivers: [
@@ -207,15 +310,19 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
                     ),
                   ),
 
-                // ── Tier 2: 등급 신청 후 가능 (신청 중인 경우만) ──
-                if (profile?.ltcGradeStatus == 'applying' && tier2.isNotEmpty) ...[
+                // ── Tier 2: 장기요양 등급 필요 ──
+                if (tier2.isNotEmpty) ...[
                   SliverToBoxAdapter(
                     child: _buildTierHeader(
-                      '등급 받으면 바로 신청 가능',
+                      profile?.ltcGradeStatus == 'applying'
+                          ? '등급 받으면 바로 신청 가능'
+                          : '장기요양 등급 필요',
                       '${tier2.length}개',
                       const Color(0xFFF57C00),
                       Icons.hourglass_empty_outlined,
-                      '장기요양 등급 신청 중 → 판정 후 즉시 가능',
+                      profile?.ltcGradeStatus == 'applying'
+                          ? '장기요양 등급 신청 중 → 판정 후 즉시 가능'
+                          : '현재는 신청 전 단계예요. 등급 신청 후 진행할 수 있어요',
                     ),
                   ),
                   SliverPadding(
@@ -224,7 +331,7 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
                       delegate: SliverChildBuilderDelegate(
                         (_, i) => Padding(
                           padding: const EdgeInsets.only(bottom: 12),
-                          child: _buildTier2Card(context, tier2[i]),
+                          child: _buildTier2Card(context, tier2[i], profile),
                         ),
                         childCount: tier2.length,
                       ),
@@ -347,6 +454,21 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
     );
   }
 
+  Widget _aiBadge() => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+    decoration: BoxDecoration(
+      color: const Color(0xFFE8F5E9),
+      borderRadius: BorderRadius.circular(6),
+      border: Border.all(color: const Color(0xFFA5D6A7)),
+    ),
+    child: const Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(Icons.auto_awesome, size: 10, color: Color(0xFF388E3C)),
+      SizedBox(width: 3),
+      Text('AI', style: TextStyle(
+          fontSize: 10, color: Color(0xFF388E3C), fontWeight: FontWeight.w700)),
+    ]),
+  );
+
   Widget _buildProviderCard(Map<String, String> provider) {
     const teal = Color(0xFF00796B);
     const tealLight = Color(0xFFE0F2F1);
@@ -424,7 +546,9 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
     );
   }
 
-  Widget _buildTier2Card(BuildContext context, WelfareService svc) {
+  Widget _buildTier2Card(BuildContext context, WelfareService svc, dynamic profile) {
+    final reasons = profile != null ? svc.getMismatchReasons(profile) : <String>[];
+    final hint = reasons.isNotEmpty ? reasons.first : '장기요양 등급 확인이 필요해요';
     return GestureDetector(
       onTap: () => context.push('/welfare/${svc.id}'),
       child: Container(
@@ -451,8 +575,27 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
               ],
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Icon(Icons.info_outline, size: 12, color: Color(0xFFE65100)),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      '미충족 사유: $hint',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 11, color: Color(0xFFE65100)),
+                    ),
+                  ),
+                ],
+              ),
             ]),
           ),
+          if (svc.aiSummary.isNotEmpty) ...[
+            _aiBadge(),
+            const SizedBox(width: 6),
+          ],
           const Icon(Icons.chevron_right, size: 18, color: Color(0xFFF57C00)),
         ]),
       ),
@@ -479,6 +622,10 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
                       fontWeight: FontWeight.w600,
                       color: Colors.grey.shade600)),
             ),
+            if (svc.aiSummary.isNotEmpty) ...[
+              _aiBadge(),
+              const SizedBox(width: 6),
+            ],
             Icon(Icons.chevron_right, size: 18, color: Colors.grey.shade400),
           ]),
           if (svc.description.isNotEmpty) ...[
@@ -584,6 +731,46 @@ class _WelfareListScreenState extends State<WelfareListScreen> {
               ),
             );
           }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+      child: TextField(
+        controller: _searchCtrl,
+        onChanged: (v) => setState(() => _searchQuery = v),
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          hintText: '서비스명/대상/혜택/태그 키워드 검색',
+          prefixIcon: const Icon(Icons.search, size: 20),
+          suffixIcon: _searchQuery.isEmpty
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  onPressed: () {
+                    _searchCtrl.clear();
+                    setState(() => _searchQuery = '');
+                  },
+                ),
+          filled: true,
+          fillColor: const Color(0xFFF7F8FA),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: AppTheme.divider),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: AppTheme.divider),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: AppTheme.primary),
+          ),
         ),
       ),
     );

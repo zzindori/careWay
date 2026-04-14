@@ -7,6 +7,7 @@ class ProfileCard extends StatelessWidget {
   final bool isSelected;
   final VoidCallback onTap;
   final VoidCallback onEdit;
+  final VoidCallback onDelete;
   final int? tier1Count;
   final int? tier2Count;
   final int? tier3Count;
@@ -17,6 +18,7 @@ class ProfileCard extends StatelessWidget {
     required this.isSelected,
     required this.onTap,
     required this.onEdit,
+    required this.onDelete,
     this.tier1Count,
     this.tier2Count,
     this.tier3Count,
@@ -92,12 +94,26 @@ class ProfileCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.edit_outlined,
-                        size: 16, color: AppTheme.textSecondary),
-                    onPressed: onEdit,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit_outlined,
+                            size: 16, color: AppTheme.textSecondary),
+                        onPressed: onEdit,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline,
+                            size: 16, color: Color(0xFFD32F2F)),
+                        onPressed: onDelete,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        tooltip: '삭제',
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -290,6 +306,11 @@ class ProfileCard extends StatelessWidget {
 
   List<Widget> _otherTags() {
     final tags = <Widget>[];
+    if (profile.gender == 'male') {
+      tags.add(_tag('남성', Colors.blue.shade600));
+    } else if (profile.gender == 'female') {
+      tags.add(_tag('여성', Colors.pink.shade500));
+    }
     if (profile.isBasicRecipient) {
       tags.add(_tag('기초수급', Colors.indigo.shade700));
     } else if (profile.incomeLevel != null && profile.incomeLevel! <= 3) {

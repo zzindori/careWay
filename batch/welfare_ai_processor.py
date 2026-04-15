@@ -365,9 +365,7 @@ def validate_env(phase=None):
     if phase in (None, "2", "2r"):
         if not GEMINI_API_KEY:
             missing.append("GEMINI_API_KEY")
-    if phase == "providers":
-        if not SOCIAL_SERVICE_API_KEY:
-            missing.append("SOCIAL_SERVICE_API_KEY")
+    # SOCIAL_SERVICE_API_KEY 없으면 run_phase_providers 가 로그만 남기고 스킵 (종료하지 않음)
     if missing:
         print(f"❌ 환경변수 미설정: {', '.join(missing)}")
         sys.exit(1)

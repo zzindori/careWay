@@ -473,14 +473,40 @@ def fetch_local_welfare_list(page: int, num_rows: int = 100) -> list:
         return [], 0
 
 
+def _fetch_all_local_online_urls(supabase) -> set[str]:
+    """
+    source=local 인 행의 online_url 전부 (PostgREST 기본 행 상한 1000을 넘기 위해 range 페이징).
+    """
+    existing_ids: set[str] = set()
+    start = 0
+    page = 1000
+    while True:
+        result = (
+            supabase.table("welfare_services")
+            .select("online_url")
+            .eq("source", "local")
+            .order("id")
+            .range(start, start + page - 1)
+            .execute()
+        )
+        rows = result.data or []
+        for r in rows:
+            u = r.get("online_url")
+            if u:
+                existing_ids.add(u)
+        if len(rows) < page:
+            break
+        start += page
+    return existing_ids
+
+
 def run_phase0(supabase) -> int:
     """Phase 0: 지자체복지서비스 전체 목록 수집 → welfare_services 신규 등록"""
     print("\n━━━ PHASE 0: 지자체복지서비스 수집 ━━━")
 
     # 기존 지자체 서비스 ID 목록 (online_url에 저장된 WLF ID로 중복 체크)
-    existing = supabase.table("welfare_services").select("online_url").eq("source", "local").execute()
-    existing_ids = {r["online_url"] for r in existing.data if r.get("online_url")}
-    print(f"  기존 서비스: {len(existing_ids)}개")
+    existing_ids = _fetch_all_local_online_urls(supabase)
+    print(f"  기존 서비스: {len(existing_ids)}개 (전체 조회)")
 
     page, num_rows = 1, 100
     total_new = total_skip = 0

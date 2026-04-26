@@ -33,6 +33,9 @@ concurrency:
   group: careway-local-welfare-crawler
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   crawl:
     name: 지자체 복지 웹 수집
@@ -72,3 +75,22 @@ jobs:
           name: local-welfare-report
           path: batch/output/local_welfare_report.json
           if-no-files-found: warn
+
+      - name: 최신 수집 리포트 커밋
+        if: always()
+        run: |
+          if [ ! -f batch/output/local_welfare_report.json ]; then
+            echo "No local welfare report to commit"
+            exit 0
+          fi
+          cp batch/output/local_welfare_report.json batch/output/latest_local_welfare_report.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add batch/output/latest_local_welfare_report.json
+          if git diff --cached --quiet; then
+            echo "No report changes"
+            exit 0
+          fi
+          git commit -m "chore(batch): update local welfare crawl report"
+          git pull --rebase origin main
+          git push origin HEAD:main

@@ -57,12 +57,6 @@ from urllib.parse import parse_qs, urlparse
 from google import genai as google_genai
 from supabase import create_client
 
-from local_welfare_crawler import (
-    LOCAL_PILOT_KEYWORDS,
-    PILOT_LOCAL_TARGETS,
-    fetch_local_pilot_page,
-)
-
 # ── 설정 ──────────────────────────────────────────────────────────────────────
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://dnnidnqwkjmbssxixpjg.supabase.co")
@@ -378,7 +372,7 @@ def validate_env(phase=None):
     if phase in (None, "daily", "both", "reclassify", "2", "2r"):
         if not GEMINI_API_KEY:
             missing.append("GEMINI_API_KEY")
-    if phase in (None, "daily", "both", "collect", "collect_pilot_local", "0", "0_detail"):
+    if phase in (None, "daily", "both", "collect", "0", "0_detail"):
         if not LOCAL_WELFARE_API_KEY:
             missing.append("LOCAL_WELFARE_API_KEY")
     # SOCIAL_SERVICE_API_KEY 없으면 run_phase_providers 가 로그만 남기고 스킵 (종료하지 않음)
@@ -849,152 +843,6 @@ def run_phase_providers(supabase) -> int:
 
     print(f"  Phase P 완료: upsert={total_upsert}")
     return total_upsert
-
-
-# ════════════════════════════════════════════════════════════════════════════════
-# PILOT LOCAL: 지자체/보건소/복지관 웹페이지 수집 → 앱용 구조화
-# ════════════════════════════════════════════════════════════════════════════════
-
-def _infer_min_age(text: str) -> int | None:
-    m = re.search(r"(?:만\s*)?(\d{2})\s*세\s*이상", text or "")
-    if not m:
-        return None
-    age = int(m.group(1))
-    return age if 0 < age < 120 else None
-
-
-def _infer_income_level(text: str) -> int:
-    t = text or ""
-    if "기초생활수급" in t or "생계급여" in t or "의료급여" in t:
-        return 1
-    if "차상위" in t:
-        return 2
-    if "저소득" in t:
-        return 3
-    return 10
-
-
-def _build_local_pilot_summary(name: str, target_info: str, benefit_info: str, apply_place: str) -> str:
-    parts = [f"{name} 관련 지역 복지 안내입니다."]
-    if target_info:
-        parts.append(f"대상은 {target_info[:120]}입니다.")
-    if benefit_info:
-        parts.append(f"주요 내용은 {benefit_info[:140]}입니다.")
-    if apply_place:
-        parts.append(f"문의나 신청은 {apply_place[:100]}에서 확인하세요.")
-    return " ".join(parts)[:500]
-
-
-def _build_local_pilot_payload(target: dict, page: dict) -> dict | None:
-    text = page.get("text", "")
-    if not any(k in text for k in LOCAL_PILOT_KEYWORDS):
-        return None
-
-    title = page.get("title") or target["source_name"]
-    name = f"{target['sub_region']} {target['source_name']}".strip()
-    region = target["region"]
-    sub_region = target["sub_region"]
-    area_detail = target.get("area_detail", "")
-    source_text = " ".join(filter(None, [name, text, area_detail]))
-
-    tags = _augment_service_tags(source_text, [])
-    category = target.get("category") or _normalize_category("living", tags, source_text)
-    target_age_group = target.get("target_age_group") or _infer_target_age_group_from_text(source_text, "unknown")
-    min_age = target.get("min_age") or _infer_min_age(source_text)
-    max_income_level = _infer_income_level(source_text)
-    requires_alone = "독거" in source_text or "홀몸" in source_text
-    requires_ltc_grade = "장기요양" in source_text and ("등급" in source_text or "인정" in source_text)
-    phone = page.get("phone", "")
-    apply_place = phone or target["source_name"]
-    if area_detail:
-        apply_place = f"{target['source_name']} ({area_detail})" + (f" / {phone}" if phone else "")
-
-    raw_content = "\n\n".join([
-        f"[수집 출처]\n{target['source_name']}",
-        f"[지역]\n{region} {sub_region} {area_detail}".strip(),
-        f"[원문 URL]\n{target['url']}",
-        f"[원문 제목]\n{title}",
-        f"[원문 내용]\n{text[:3000]}",
-    ])
-
-    payload = {
-        "name": name[:200],
-        "category": category,
-        "description": text[:300] or name,
-        "target_info": f"{region} {sub_region} {area_detail} 지역 주민 대상 안내".strip(),
-        "benefit_info": text[:800],
-        "apply_place": apply_place,
-        "online_url": target["url"],
-        "difficulty": 2,
-        "is_renewable": True,
-        "min_age": min_age,
-        "max_income_level": max_income_level,
-        "requires_ltc_grade": requires_ltc_grade,
-        "requires_alone": requires_alone,
-        "requires_basic_recipient": max_income_level == 1,
-        "requires_disability": "장애" in source_text and "노인" not in source_text,
-        "requires_veteran": any(k in source_text for k in ["국가유공자", "참전유공자"]),
-        "gender": "any",
-        "target_age_group": target_age_group,
-        "region": region,
-        "sub_region": sub_region,
-        "service_tags": tags,
-        "applmet_list": _build_applmet_list_from_apply_place(apply_place),
-        "inq_place": phone,
-        "detail_content": text[:2000],
-        "raw_content": raw_content,
-        "source": "local_site_pilot",
-    }
-    payload["ai_summary"] = _build_local_pilot_summary(
-        payload["name"], payload["target_info"], payload["benefit_info"], payload["apply_place"]
-    )
-    payload["search_tokens"] = _build_search_tokens(payload)
-    return payload
-
-
-def run_collect_pilot_local(supabase) -> int:
-    """충북 괴산군/경기 용인시 수지구 파일럿 웹 수집."""
-    print("\n━━━ PILOT LOCAL: 괴산군/용인시 수지구 웹 수집 ━━━")
-    ok = skip = fail = quota = 0
-
-    try:
-        supabase.table("welfare_services").delete().eq("source", "local_site_pilot").execute()
-        print("  기존 파일럿 데이터 정리 완료")
-    except Exception as e:
-        print(f"  ⚠ 기존 파일럿 데이터 정리 실패: {e}")
-
-    for target in PILOT_LOCAL_TARGETS:
-        print(f"  {target['source_name']} 수집 중... ", end="", flush=True)
-        page = fetch_local_pilot_page(target)
-        if not page:
-            print("⚠ 실패")
-            fail += 1
-            continue
-        if page.get("quota_exceeded"):
-            print("⚠ 429 중단")
-            quota += 1
-            break
-
-        payload = _build_local_pilot_payload(target, page)
-        if not payload:
-            print("↷ 복지 키워드 부족")
-            skip += 1
-            continue
-
-        try:
-            supabase.table("welfare_services").upsert(
-                payload,
-                on_conflict="online_url",
-            ).execute()
-            print("✓")
-            ok += 1
-        except Exception as e:
-            print(f"❌ {e}")
-            fail += 1
-        time.sleep(WEB_SCRAPE_DELAY)
-
-    print(f"\n  파일럿 수집 완료: 저장={ok}, 스킵={skip}, 실패={fail}, 429={quota}")
-    return ok
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -2818,8 +2666,6 @@ def main(phase=None):
         run_repair_batch(supabase)
     elif phase == "repair_force_search":
         run_repair_batch(supabase, force_search_tokens=True)
-    elif phase == "collect_pilot_local":
-        run_collect_pilot_local(supabase)
     elif phase == "0_national":
         run_phase0_national(supabase)
     elif phase == "0":

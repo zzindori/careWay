@@ -17,7 +17,6 @@ on:
           - reclassify
           - repair
           - repair_force_search
-          - collect_pilot_local
 
 concurrency:
   group: careway-welfare-batch
@@ -55,9 +54,6 @@ jobs:
 
       - name: 패키지 설치
         run: pip install -r batch/requirements.txt
-
-      - name: Playwright 브라우저 설치
-        run: playwright install --with-deps chromium
 
       - name: 배치 실행
         run: python batch/welfare_ai_processor.py --phase "$BATCH_PHASE"

@@ -38,15 +38,16 @@ python batch/welfare_ai_processor.py --phase 2
 - `reclassify`: 상세 누락 일부 보강 후 오래된 AI 분류 순환 재검토
 - `repair`: 데이터 수집 없이 지역, 코드, 검색 토큰 보정
 - `repair_force_search`: 검색 토큰까지 강제 재생성하는 보정
-- `collect_pilot_local`: 충북 괴산군/경기 용인시 수지구 웹페이지 파일럿 수집
 
 개별 phase(`0_national`, `0`, `providers`, `0_detail`, `1`, `1_web`, `1_lite`, `2`, `2r`, `fix_*`)는 장애 분석이나 부분 복구용으로 남겨둡니다.
 
-## 지역 웹 수집 파일럿
+## 지역 복지 수집 로봇
 
-`collect_pilot_local`은 자동 배치에 포함하지 않는 수동 테스트용 phase입니다. 현재 대상은 다음 두 지역입니다.
+지자체 홈페이지 웹 수집은 통합 복지서비스 배치와 분리해 `batch/local_welfare_batch.py`에서 실행합니다. GitHub Actions의 `CareWay 지역 복지 수집 로봇` workflow에서 수동 실행합니다.
+
+현재 파일럿 대상은 다음 두 지역입니다.
 
 - 충북 괴산군
 - 경기 용인시 수지구
 
-구청/복지/보건소 관련 웹페이지를 읽어 `welfare_services`에 `source = local_site_pilot`으로 저장합니다. 수집 품질을 확인한 뒤 자동 배치 편입 여부를 결정합니다.
+지자체/보건소 관련 웹페이지를 읽어 `welfare_services`에 `source = local_site_pilot`으로 저장합니다. 실행 시 기존 파일럿 데이터는 먼저 삭제하고 새 기준으로 다시 수집합니다.

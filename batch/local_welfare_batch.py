@@ -31,6 +31,7 @@ WEB_SCRAPE_DELAY = float(os.environ.get("LOCAL_WELFARE_CRAWL_DELAY", "0.5"))
 LOCAL_WELFARE_CRAWL_TARGET = os.environ.get("LOCAL_WELFARE_CRAWL_TARGET", "pilot")
 LOCAL_WELFARE_REPORT_PATH = os.environ.get("LOCAL_WELFARE_REPORT_PATH", "batch/output/local_welfare_report.json")
 LOCAL_WELFARE_RESET_EXISTING = os.environ.get("LOCAL_WELFARE_RESET_EXISTING", "false").lower() in {"1", "true", "yes"}
+LOCAL_WELFARE_PROMOTE_WARNINGS = os.environ.get("LOCAL_WELFARE_PROMOTE_WARNINGS", "false").lower() in {"1", "true", "yes"}
 
 ALLOWED_SERVICE_TAGS = {
     "dementia",
@@ -416,6 +417,30 @@ def _report_snapshot(payload: dict, warnings: list[str]) -> dict:
     }
 
 
+def _build_candidate_record(target: dict, page: dict, payload: dict | None, warnings: list[str], status: str) -> dict:
+    return {
+        "source_url": target["url"],
+        "source_name": target["source_name"],
+        "source_type": target.get("source_type"),
+        "region": target["region"],
+        "sub_region": target["sub_region"],
+        "area_detail": target.get("area_detail", ""),
+        "title": page.get("title", ""),
+        "content": page.get("text", "")[:5000],
+        "phone": page.get("phone", ""),
+        "payload": payload,
+        "quality_warnings": warnings,
+        "status": status,
+        "promoted_service_url": payload.get("online_url") if payload and status == "promoted" else None,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _upsert_candidate(supabase, target: dict, page: dict, payload: dict | None, warnings: list[str], status: str) -> None:
+    record = _build_candidate_record(target, page, payload, warnings, status)
+    supabase.table("local_welfare_candidates").upsert(record, on_conflict="source_url").execute()
+
+
 def _write_report(report: dict) -> None:
     path = Path(LOCAL_WELFARE_REPORT_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -428,17 +453,26 @@ def _print_report_summary(report: dict) -> None:
     print("\n━━━ LOCAL CRAWLER REPORT ━━━")
     print(
         "  "
-        f"저장={stats.get('saved', 0)}, "
+        f"후보={stats.get('candidates', 0)}, "
+        f"승격={stats.get('promoted', 0)}, "
+        f"보류={stats.get('held', 0)}, "
         f"스킵={stats.get('skipped', 0)}, "
         f"실패={stats.get('failed', 0)}, "
         f"429={stats.get('quota', 0)}, "
         f"품질경고={stats.get('warnings', 0)}"
     )
 
-    saved = report.get("saved") or []
-    if saved:
-        print("  저장 샘플:")
-        for item in saved[:10]:
+    promoted = report.get("promoted") or []
+    if promoted:
+        print("  승격 샘플:")
+        for item in promoted[:10]:
+            warnings = ",".join(item.get("warnings") or []) or "-"
+            print(f"    - {item.get('name')} | {item.get('category')} | 경고={warnings}")
+
+    held = report.get("held") or []
+    if held:
+        print("  후보 보류 샘플:")
+        for item in held[:10]:
             warnings = ",".join(item.get("warnings") or []) or "-"
             print(f"    - {item.get('name')} | {item.get('category')} | 경고={warnings}")
 
@@ -530,8 +564,9 @@ def run() -> int:
         "finished_at": None,
         "target": LOCAL_WELFARE_CRAWL_TARGET,
         "reset_existing": LOCAL_WELFARE_RESET_EXISTING,
-        "stats": {"saved": 0, "skipped": 0, "failed": 0, "quota": 0, "warnings": 0},
-        "saved": [],
+        "stats": {"candidates": 0, "promoted": 0, "held": 0, "skipped": 0, "failed": 0, "quota": 0, "warnings": 0},
+        "promoted": [],
+        "held": [],
         "skipped": [],
         "failed": [],
     }
@@ -540,12 +575,13 @@ def run() -> int:
     print("=" * 60)
     print("\n━━━ LOCAL CRAWLER: 지역 노인복지 파일럿 수집 ━━━")
 
-    ok = skip = fail = quota = 0
+    candidates = promoted = held = skip = fail = quota = 0
     if LOCAL_WELFARE_RESET_EXISTING:
+        supabase.table("local_welfare_candidates").delete().neq("source_url", "").execute()
         supabase.table("welfare_services").delete().eq("source", "local_site_pilot").execute()
-        print("  기존 지역 수집 데이터 정리 완료")
+        print("  기존 지역 후보/승격 데이터 정리 완료")
     else:
-        print("  기존 지역 수집 데이터 유지: URL 기준 누적 upsert")
+        print("  기존 지역 수집 데이터 유지: 후보/최종 URL 기준 누적 upsert")
 
     discovered_targets = discover_elderly_region_targets()
     if discovered_targets:
@@ -582,6 +618,10 @@ def run() -> int:
         if not payload:
             print("↷ 복지 키워드 부족")
             skip += 1
+            try:
+                _upsert_candidate(supabase, target, page, None, ["not_service_like"], "skipped")
+            except Exception as exc:
+                print(f" 후보저장실패={exc}")
             report["skipped"].append({
                 "source_name": target["source_name"],
                 "url": target["url"],
@@ -590,14 +630,24 @@ def run() -> int:
             continue
 
         try:
-            supabase.table("welfare_services").upsert(payload, on_conflict="online_url").execute()
             warnings = _quality_warnings(payload)
-            report["saved"].append(_report_snapshot(payload, warnings))
-            if warnings:
-                print(f"✓ 경고={len(warnings)}")
+            can_promote = not warnings or LOCAL_WELFARE_PROMOTE_WARNINGS
+            status = "promoted" if can_promote else "held"
+            _upsert_candidate(supabase, target, page, payload, warnings, status)
+            candidates += 1
+
+            if can_promote:
+                supabase.table("welfare_services").upsert(payload, on_conflict="online_url").execute()
+                report["promoted"].append(_report_snapshot(payload, warnings))
+                promoted += 1
+                if warnings:
+                    print(f"✓ 후보/승격 경고={len(warnings)}")
+                else:
+                    print("✓ 후보/승격")
             else:
-                print("✓")
-            ok += 1
+                report["held"].append(_report_snapshot(payload, warnings))
+                held += 1
+                print(f"□ 후보보류 경고={len(warnings)}")
         except Exception as exc:
             print(f"❌ {exc}")
             fail += 1
@@ -609,14 +659,16 @@ def run() -> int:
             })
         time.sleep(WEB_SCRAPE_DELAY)
 
-    print(f"\n  지역 수집 완료: 저장={ok}, 스킵={skip}, 실패={fail}, 429={quota}")
+    print(f"\n  지역 수집 완료: 후보={candidates}, 승격={promoted}, 보류={held}, 스킵={skip}, 실패={fail}, 429={quota}")
     report["finished_at"] = datetime.now(timezone.utc).isoformat()
     report["stats"] = {
-        "saved": ok,
+        "candidates": candidates,
+        "promoted": promoted,
+        "held": held,
         "skipped": skip,
         "failed": fail,
         "quota": quota,
-        "warnings": sum(len(item["warnings"]) for item in report["saved"]),
+        "warnings": sum(len(item["warnings"]) for item in report["promoted"] + report["held"]),
     }
     _write_report(report)
     _print_report_summary(report)

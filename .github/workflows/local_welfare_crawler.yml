@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'batch/local_welfare_*.py'
+      - 'supabase/migrations/**'
       - '.github/workflows/local_welfare_crawler.yml'
   workflow_dispatch:
     inputs:
@@ -19,6 +20,11 @@ on:
           - nationwide
       reset_existing:
         description: '기존 지역 수집 데이터 삭제 후 재수집'
+        required: false
+        default: false
+        type: boolean
+      promote_warnings:
+        description: '품질 경고가 있는 후보도 welfare_services로 승격'
         required: false
         default: false
         type: boolean
@@ -36,6 +42,7 @@ jobs:
       SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       LOCAL_WELFARE_CRAWL_TARGET: ${{ inputs.target }}
       LOCAL_WELFARE_RESET_EXISTING: ${{ inputs.reset_existing || 'false' }}
+      LOCAL_WELFARE_PROMOTE_WARNINGS: ${{ inputs.promote_warnings || 'false' }}
       LOCAL_WELFARE_REPORT_PATH: batch/output/local_welfare_report.json
 
     steps:

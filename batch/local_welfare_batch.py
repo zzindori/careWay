@@ -11,6 +11,7 @@ import json
 import os
 import re
 import time
+import base64
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -150,6 +151,18 @@ SEARCH_TOKEN_KEYWORDS = {
 def _split_search_words(text: str) -> list[str]:
     cleaned = strip_html(text or "").lower()
     return re.findall(r"[a-z0-9가-힣]+", cleaned) if cleaned else []
+
+
+def _supabase_key_role(key: str) -> str:
+    try:
+        parts = key.split(".")
+        if len(parts) < 2:
+            return "unknown"
+        payload = parts[1] + "=" * (-len(parts[1]) % 4)
+        decoded = json.loads(base64.urlsafe_b64decode(payload.encode("utf-8")).decode("utf-8"))
+        return decoded.get("role") or "unknown"
+    except Exception:
+        return "unknown"
 
 
 def _infer_min_age(text: str) -> int | None:
@@ -573,6 +586,7 @@ def run() -> int:
     print("=" * 60)
     print("  CareWay 지역 복지 수집 로봇")
     print("=" * 60)
+    print(f"  Supabase key role: {_supabase_key_role(SUPABASE_SERVICE_KEY)}")
     print("\n━━━ LOCAL CRAWLER: 지역 노인복지 파일럿 수집 ━━━")
 
     candidates = promoted = held = skip = fail = quota = 0

@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - pilot
+          - nationwide
 
 concurrency:
   group: careway-local-welfare-crawler
@@ -23,6 +24,7 @@ jobs:
     env:
       SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       LOCAL_WELFARE_CRAWL_TARGET: ${{ inputs.target }}
+      LOCAL_WELFARE_REPORT_PATH: batch/output/local_welfare_report.json
 
     steps:
       - name: 코드 체크아웃
@@ -43,3 +45,11 @@ jobs:
 
       - name: 지역 복지 수집 실행
         run: python batch/local_welfare_batch.py
+
+      - name: 수집 리포트 업로드
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-welfare-report
+          path: batch/output/local_welfare_report.json
+          if-no-files-found: warn

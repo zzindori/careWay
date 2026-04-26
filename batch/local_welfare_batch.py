@@ -7,9 +7,12 @@ Runs separately from the national welfare API/AI classification pipeline.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 from supabase import create_client
 
@@ -25,6 +28,8 @@ from local_welfare_crawler import (
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://dnnidnqwkjmbssxixpjg.supabase.co")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 WEB_SCRAPE_DELAY = float(os.environ.get("LOCAL_WELFARE_CRAWL_DELAY", "0.5"))
+LOCAL_WELFARE_CRAWL_TARGET = os.environ.get("LOCAL_WELFARE_CRAWL_TARGET", "pilot")
+LOCAL_WELFARE_REPORT_PATH = os.environ.get("LOCAL_WELFARE_REPORT_PATH", "batch/output/local_welfare_report.json")
 
 ALLOWED_SERVICE_TAGS = {
     "dementia",
@@ -367,6 +372,56 @@ def _is_service_like(text: str) -> bool:
     return any(marker in text for marker in service_markers)
 
 
+def _quality_warnings(payload: dict) -> list[str]:
+    warnings = []
+    name = payload.get("name", "")
+    sub_region = payload.get("sub_region", "")
+    detail = payload.get("detail_content", "")
+    raw_content = payload.get("raw_content", "")
+
+    if sub_region and name.count(sub_region) > 1:
+        warnings.append("duplicate_region_name")
+    if len(detail) < 120:
+        warnings.append("short_detail_content")
+    if not payload.get("inq_place"):
+        warnings.append("missing_phone")
+    if "현재 페이지에서 제공하는 정보에 만족하십니까" in detail:
+        warnings.append("municipal_satisfaction_noise")
+    if any(title in raw_content for title in ["site map", "YONGIN SPECIAL CITY", "노원복지소식"]):
+        warnings.append("generic_source_title")
+    if payload.get("target_age_group") != "elderly":
+        warnings.append("non_elderly_target")
+    if payload.get("requires_disability") and "장애인" not in detail:
+        warnings.append("weak_disability_requirement")
+    return warnings
+
+
+def _report_snapshot(payload: dict, warnings: list[str]) -> dict:
+    return {
+        "name": payload.get("name"),
+        "category": payload.get("category"),
+        "region": payload.get("region"),
+        "sub_region": payload.get("sub_region"),
+        "online_url": payload.get("online_url"),
+        "apply_place": payload.get("apply_place"),
+        "inq_place": payload.get("inq_place"),
+        "target_age_group": payload.get("target_age_group"),
+        "service_tags": payload.get("service_tags") or [],
+        "requires_ltc_grade": payload.get("requires_ltc_grade"),
+        "requires_alone": payload.get("requires_alone"),
+        "requires_basic_recipient": payload.get("requires_basic_recipient"),
+        "search_tokens": payload.get("search_tokens") or [],
+        "warnings": warnings,
+    }
+
+
+def _write_report(report: dict) -> None:
+    path = Path(LOCAL_WELFARE_REPORT_PATH)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"  리포트 저장: {path}")
+
+
 def _build_payload(target: dict, page: dict) -> dict | None:
     text = page.get("text", "")
     if not any(keyword in text for keyword in LOCAL_PILOT_KEYWORDS):
@@ -437,6 +492,15 @@ def run() -> int:
         raise RuntimeError("SUPABASE_SERVICE_KEY is required")
 
     supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    report = {
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "finished_at": None,
+        "target": LOCAL_WELFARE_CRAWL_TARGET,
+        "stats": {"saved": 0, "skipped": 0, "failed": 0, "quota": 0, "warnings": 0},
+        "saved": [],
+        "skipped": [],
+        "failed": [],
+    }
     print("=" * 60)
     print("  CareWay 지역 복지 수집 로봇")
     print("=" * 60)
@@ -461,28 +525,63 @@ def run() -> int:
         if not page:
             print("⚠ 실패")
             fail += 1
+            report["failed"].append({
+                "source_name": target["source_name"],
+                "url": target["url"],
+                "reason": "fetch_failed",
+            })
             continue
         if page.get("quota_exceeded"):
             print("⚠ 429 중단")
             quota += 1
+            report["failed"].append({
+                "source_name": target["source_name"],
+                "url": target["url"],
+                "reason": "quota_exceeded",
+            })
             break
 
         payload = _build_payload(target, page)
         if not payload:
             print("↷ 복지 키워드 부족")
             skip += 1
+            report["skipped"].append({
+                "source_name": target["source_name"],
+                "url": target["url"],
+                "reason": "not_service_like",
+            })
             continue
 
         try:
             supabase.table("welfare_services").upsert(payload, on_conflict="online_url").execute()
-            print("✓")
+            warnings = _quality_warnings(payload)
+            report["saved"].append(_report_snapshot(payload, warnings))
+            if warnings:
+                print(f"✓ 경고={len(warnings)}")
+            else:
+                print("✓")
             ok += 1
         except Exception as exc:
             print(f"❌ {exc}")
             fail += 1
+            report["failed"].append({
+                "source_name": target["source_name"],
+                "url": target["url"],
+                "reason": "upsert_failed",
+                "error": str(exc),
+            })
         time.sleep(WEB_SCRAPE_DELAY)
 
     print(f"\n  지역 수집 완료: 저장={ok}, 스킵={skip}, 실패={fail}, 429={quota}")
+    report["finished_at"] = datetime.now(timezone.utc).isoformat()
+    report["stats"] = {
+        "saved": ok,
+        "skipped": skip,
+        "failed": fail,
+        "quota": quota,
+        "warnings": sum(len(item["warnings"]) for item in report["saved"]),
+    }
+    _write_report(report)
     return 0 if fail == 0 else 1
 
 

@@ -575,11 +575,27 @@ def _focus_local_text(target: dict[str, Any], text: str) -> str:
     return focused
 
 
+def _clean_local_text(text: str) -> str:
+    text = re.split(r"현재 페이지에서 제공하는 정보에 만족하십니까", text or "", maxsplit=1)[0]
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _clean_local_title(title: str, fallback: str) -> str:
+    generic_titles = [
+        "site map",
+        "YONGIN SPECIAL CITY 용인특례시",
+        "노원복지소식",
+        "괴산군청 분야별정보복지",
+    ]
+    return fallback if title in generic_titles else title
+
+
 def _parse_local_html(target: dict[str, Any], html: str) -> dict[str, Any] | None:
     html = _strip_noise_html(html)
-    title = _extract_html_title(html, target["source_name"])
+    title = _clean_local_title(_extract_html_title(html, target["source_name"]), target["source_name"])
     full_text = _extract_main_text(target, html)
-    text = _focus_local_text(target, full_text)
+    text = _clean_local_text(_focus_local_text(target, full_text))
     if not text:
         return None
     return {

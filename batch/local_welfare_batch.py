@@ -154,7 +154,8 @@ def _infer_min_age(text: str) -> int | None:
 
 
 def _infer_income_level(text: str) -> int:
-    if "기초생활수급" in text or "생계급여" in text or "의료급여" in text:
+    text = _positive_rule_text(text)
+    if "기초생활수급" in text or "생계급여 수급자 지원" in text:
         return 1
     if "차상위" in text:
         return 2
@@ -183,25 +184,25 @@ def _augment_service_tags(text: str) -> list[str]:
     tags = set()
     if any(keyword in text for keyword in ["병원동행", "이동지원", "교통지원", "차량지원", "택시"]):
         tags.update(["mobility", "hospital_companion"])
-    if any(keyword in text for keyword in ["치매", "인지"]):
+    if any(keyword in text for keyword in ["치매", "인지활동", "인지지원서비스"]):
         tags.add("dementia")
     if any(keyword in text for keyword in ["방문요양", "일상생활", "가사", "식사"]):
         tags.add("daily_care")
     if any(keyword in text for keyword in ["식사", "도시락", "급식"]):
         tags.add("meal_support")
-    if any(keyword in text for keyword in ["방문", "재가", "방문요양", "방문돌봄"]):
+    if any(keyword in text for keyword in ["방문요양", "방문돌봄", "방문건강", "방문간호", "가정방문", "재가방문"]):
         tags.add("home_visit")
     if any(keyword in text for keyword in ["보청기", "청각"]):
         tags.add("hearing")
     if any(keyword in text for keyword in ["안경", "시각", "개안"]):
         tags.add("vision")
-    if any(keyword in text for keyword in ["의료", "진료", "치료", "투약", "검진"]):
+    if any(keyword in text for keyword in ["의료지원", "진료", "치료", "투약", "검진", "보건소"]):
         tags.add("medical")
     if any(keyword in text for keyword in ["지원금", "수당", "급여", "바우처", "현금"]):
         tags.add("financial_support")
     if any(keyword in text for keyword in ["주거개선", "주택개조", "집수리"]):
         tags.add("housing_repair")
-    if any(keyword in text for keyword in ["정신건강", "상담", "우울"]):
+    if any(keyword in text for keyword in ["정신건강", "심리상담", "우울"]):
         tags.add("mental_health")
     if any(keyword in text for keyword in ["가족돌봄", "간병가족", "부양가족"]):
         tags.add("caregiver_support")
@@ -209,7 +210,7 @@ def _augment_service_tags(text: str) -> list[str]:
 
 
 def _normalize_category(category: str, service_tags: list[str], text: str) -> str:
-    if "medical" in service_tags or any(keyword in text for keyword in ["의료", "진료", "병원", "투약", "검진", "보청기", "안경", "치료"]):
+    if "medical" in service_tags or any(keyword in text for keyword in ["의료지원", "진료", "병원동행", "투약", "검진", "보청기", "안경", "치료"]):
         return "medical"
     if any(tag in service_tags for tag in ["daily_care", "dementia"]) or any(keyword in text for keyword in ["돌봄", "요양", "방문요양", "간병", "목욕", "재가"]):
         return "care"
@@ -227,7 +228,9 @@ def _build_applmet_list(apply_place: str) -> list[dict]:
     methods = []
     for line in lines:
         method = "기타"
-        if any(keyword in line for keyword in ["방문", "주민센터", "시군구", "행정복지센터"]):
+        if re.search(r"\d{2,4}-\d{3,4}-\d{4}", line):
+            method = "전화"
+        elif any(keyword in line for keyword in ["방문", "주민센터", "시군구", "행정복지센터"]):
             method = "방문"
         elif any(keyword in line for keyword in ["온라인", "인터넷", "복지로", "홈페이지"]):
             method = "온라인"
@@ -235,6 +238,47 @@ def _build_applmet_list(apply_place: str) -> list[dict]:
             method = "전화"
         methods.append({"method": method, "description": line})
     return methods
+
+
+def _positive_rule_text(text: str) -> str:
+    text = re.split(r"제외대상|제외자", text or "", maxsplit=1)[0]
+    text = re.sub(r"유사\s*중복사업\s*[:：][^.。]*", " ", text)
+    text = re.sub(r"유사\s*중복사업[^지원내용신청방법문의]*", " ", text)
+    return text
+
+
+def _normalize_service_name(sub_region: str, source_name: str) -> str:
+    source_name = source_name.strip()
+    if source_name.startswith(sub_region):
+        return source_name
+    return f"{sub_region} {source_name}".strip()
+
+
+def _infer_apply_place(text: str, phone: str, fallback: str) -> str:
+    if "사업 수행기관별 접수" in text or "수행기관별 접수" in text:
+        return "사업 수행기관별 접수" + (f" / {phone}" if phone else "")
+    if "행정복지센터 방문신청" in text or "읍면동 행정복지센터" in text or "읍·면·동 주민센터" in text:
+        return "관할 읍면동 행정복지센터" + (f" / {phone}" if phone else "")
+    return phone or fallback
+
+
+def _requires_basic_recipient(text: str, max_income_level: int) -> bool:
+    if max_income_level != 1:
+        return False
+    positive_text = _positive_rule_text(text)
+    return "기초생활수급" in positive_text and not any(keyword in positive_text for keyword in ["또는", "차상위", "기초연금"])
+
+
+def _requires_ltc_grade(text: str) -> bool:
+    positive_text = _positive_rule_text(text)
+    return "장기요양" in positive_text and ("등급" in positive_text or "인정" in positive_text)
+
+
+def _requires_alone(text: str, name: str) -> bool:
+    if "노인일자리" in name:
+        return False
+    positive_text = _positive_rule_text(text)
+    return "독거노인" in positive_text or "독거 노인" in positive_text or "홀몸" in positive_text
 
 
 def _build_search_tokens(payload: dict) -> list[str]:
@@ -331,20 +375,22 @@ def _build_payload(target: dict, page: dict) -> dict | None:
         return None
 
     title = page.get("title") or target["source_name"]
-    name = f"{target['sub_region']} {target['source_name']}".strip()
     region = target["region"]
     sub_region = target["sub_region"]
     area_detail = target.get("area_detail", "")
+    name = _normalize_service_name(sub_region, target["source_name"])
     source_text = " ".join(filter(None, [name, text, area_detail]))
-    tags = _augment_service_tags(source_text)
+    rule_text = _positive_rule_text(source_text)
+    tags = _augment_service_tags(rule_text)
     category = target.get("category") or _normalize_category("living", tags, source_text)
     target_age_group = target.get("target_age_group") or _infer_target_age_group(source_text)
     min_age = target.get("min_age") or _infer_min_age(source_text)
-    max_income_level = _infer_income_level(source_text)
+    max_income_level = _infer_income_level(rule_text)
     phone = page.get("phone", "")
-    apply_place = phone or target["source_name"]
+    apply_place = _infer_apply_place(text, phone, target["source_name"])
     if area_detail:
         apply_place = f"{target['source_name']} ({area_detail})" + (f" / {phone}" if phone else "")
+    target_info = " ".join(part for part in [region, sub_region, area_detail, "지역 주민 대상 안내"] if part)
 
     raw_content = "\n\n".join([
         f"[수집 출처]\n{target['source_name']}",
@@ -357,7 +403,7 @@ def _build_payload(target: dict, page: dict) -> dict | None:
         "name": name[:200],
         "category": category,
         "description": text[:300] or name,
-        "target_info": f"{region} {sub_region} {area_detail} 지역 주민 대상 안내".strip(),
+        "target_info": target_info,
         "benefit_info": text[:800],
         "apply_place": apply_place,
         "online_url": target["url"],
@@ -365,9 +411,9 @@ def _build_payload(target: dict, page: dict) -> dict | None:
         "is_renewable": True,
         "min_age": min_age,
         "max_income_level": max_income_level,
-        "requires_ltc_grade": "장기요양" in source_text and ("등급" in source_text or "인정" in source_text),
-        "requires_alone": "독거" in source_text or "홀몸" in source_text,
-        "requires_basic_recipient": max_income_level == 1,
+        "requires_ltc_grade": _requires_ltc_grade(rule_text),
+        "requires_alone": _requires_alone(rule_text, name),
+        "requires_basic_recipient": _requires_basic_recipient(rule_text, max_income_level),
         "requires_disability": "장애" in source_text and "노인" not in source_text,
         "requires_veteran": any(keyword in source_text for keyword in ["국가유공자", "참전유공자"]),
         "gender": "any",

@@ -16,7 +16,7 @@ from supabase import create_client
 from local_welfare_crawler import (
     LOCAL_PILOT_KEYWORDS,
     PILOT_LOCAL_TARGETS,
-    discover_suji_dong_targets,
+    discover_elderly_region_targets,
     fetch_local_pilot_page,
     strip_html,
 )
@@ -296,7 +296,7 @@ def _is_good_search_token(token: str) -> bool:
 
 
 def _is_service_like(text: str) -> bool:
-    if any(keyword in text for keyword in ["범죄경력", "일제 점검", "만족도 조사", "현재 페이지에서 제공하는 정보"]):
+    if any(keyword in text for keyword in ["범죄경력", "일제 점검"]):
         return False
     service_markers = [
         "지원대상",
@@ -400,9 +400,9 @@ def run() -> int:
     supabase.table("welfare_services").delete().eq("source", "local_site_pilot").execute()
     print("  기존 파일럿 데이터 정리 완료")
 
-    discovered_targets = discover_suji_dong_targets()
+    discovered_targets = discover_elderly_region_targets()
     if discovered_targets:
-        print(f"  수지구 동소식 후보 발견: {len(discovered_targets)}건")
+        print(f"  지역 노인복지 후보 발견: {len(discovered_targets)}건")
 
     targets = PILOT_LOCAL_TARGETS + discovered_targets
     seen_urls = set()

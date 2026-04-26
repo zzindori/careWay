@@ -38,16 +38,6 @@ PILOT_LOCAL_TARGETS = [
         "target_age_group": "elderly",
         "min_age": 65,
     },
-    {
-        "region": "경기",
-        "sub_region": "용인시",
-        "area_detail": "수지구",
-        "source_name": "수지구 보건소 공지",
-        "source_type": "public_health_center",
-        "url": "https://www.yongin.go.kr/user/bbs/BD_selectBbs.do?q_bbsCode=1019&q_bbscttSn=20240503134345266&q_category=main&q_clCode=3",
-        "focus_keywords": ["방문건강", "치매", "어르신", "노인"],
-        "category": "medical",
-    },
 ]
 
 LOCAL_PILOT_KEYWORDS = [
@@ -89,6 +79,79 @@ SUJI_DISCOVERY_KEYWORDS = [
     "일자리",
     "무료급식",
     "이웃돕기",
+]
+
+ELDERLY_DISCOVERY_KEYWORDS = [
+    "노인복지",
+    "어르신",
+    "노인",
+    "기초연금",
+    "노인일자리",
+    "노인맞춤돌봄",
+    "독거노인",
+    "치매",
+    "치매안심센터",
+    "방문건강",
+    "방문간호",
+    "경로당",
+    "무료급식",
+    "도시락",
+    "노인복지관",
+    "시니어클럽",
+    "대한노인회",
+    "실버케어",
+]
+
+ELDERLY_EXCLUDE_KEYWORDS = [
+    "채용",
+    "입찰",
+    "문화행사",
+    "사진관",
+    "홍보관",
+    "주민등록",
+    "장애인 특별공급",
+    "청소년",
+    "아동",
+    "어린이",
+    "문화강좌",
+    "주민자치센터",
+    "강좌",
+    "교육신청",
+]
+
+REGION_ELDERLY_SOURCES = [
+    {
+        "region": "경기",
+        "sub_region": "용인시",
+        "area_detail": "",
+        "source_prefix": "용인시",
+        "seed_urls": [
+            "https://www.yongin.go.kr/home/job/yiJobInfo/oldJob.jsp",
+            "https://www.yongin.go.kr/home/www/www18/www18_02/www18_02_01.jsp",
+            "https://www.yongin.go.kr/home/www/www18/www18_02/www18_02_04/www18_02_04_04.jsp",
+        ],
+        "seed_titles": {
+            "https://www.yongin.go.kr/home/job/yiJobInfo/oldJob.jsp": "노인일자리",
+            "https://www.yongin.go.kr/home/www/www18/www18_02/www18_02_01.jsp": "기초연금",
+            "https://www.yongin.go.kr/home/www/www18/www18_02/www18_02_04/www18_02_04_04.jsp": "용인실버케어순이",
+        },
+    },
+    {
+        "region": "서울",
+        "sub_region": "노원구",
+        "area_detail": "",
+        "source_prefix": "노원구",
+        "seed_urls": [
+            "https://www.nowonbokjisaem.co.kr/------------/---------------------/%ea%b8%b0%ec%b4%88%ec%97%b0%ea%b8%88/",
+            "https://www.nowonbokjisaem.co.kr/agency/%eb%85%b8%ec%9b%90%ec%8b%9c%eb%8b%88%ec%96%b4%ed%81%b4%eb%9f%bd/",
+            "https://www.nowonbokjisaem.co.kr/department/%eb%85%b8%ec%9b%90%ea%b5%ac%ec%b2%ad-%ea%b3%a0%eb%a0%b9%ec%82%ac%ed%9a%8c%ec%a0%95%ec%b1%85%ea%b3%bc/",
+        ],
+        "seed_titles": {
+            "https://www.nowonbokjisaem.co.kr/------------/---------------------/%ea%b8%b0%ec%b4%88%ec%97%b0%ea%b8%88/": "기초연금",
+            "https://www.nowonbokjisaem.co.kr/agency/%eb%85%b8%ec%9b%90%ec%8b%9c%eb%8b%88%ec%96%b4%ed%81%b4%eb%9f%bd/": "노원시니어클럽",
+            "https://www.nowonbokjisaem.co.kr/department/%eb%85%b8%ec%9b%90%ea%b5%ac%ec%b2%ad-%ea%b3%a0%eb%a0%b9%ec%82%ac%ed%9a%8c%ec%a0%95%ec%b1%85%ea%b3%bc/": "노원구청 고령사회정책과",
+        },
+    },
 ]
 
 
@@ -172,10 +235,32 @@ def _extract_first_phone(text: str) -> str:
 
 
 def _fetch_html(url: str) -> str:
-    response = requests.get(url, headers=WEB_HEADERS, timeout=20)
-    response.raise_for_status()
-    response.encoding = response.apparent_encoding or response.encoding
-    return response.text
+    try:
+        response = requests.get(url, headers=WEB_HEADERS, timeout=20)
+        response.raise_for_status()
+        response.encoding = response.apparent_encoding or response.encoding
+        return response.text
+    except Exception:
+        return _fetch_html_with_browser(url)
+
+
+def _fetch_html_with_browser(url: str) -> str:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
+        )
+        context = browser.new_context(
+            user_agent=WEB_HEADERS.get("User-Agent"),
+            ignore_https_errors=True,
+        )
+        page = context.new_page()
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        html = page.content()
+        browser.close()
+    return html
 
 
 def _is_allowed_suji_url(url: str) -> bool:
@@ -186,6 +271,25 @@ def _is_allowed_suji_url(url: str) -> bool:
         return False
     # 동 행정복지센터 소개 페이지는 서비스가 아니므로, 우선 동소식 상세 글만 후보화한다.
     return parsed.path.endswith("/lmth/03com02.asp") and "no=" in parsed.query
+
+
+def _is_allowed_discovery_url(url: str, seed_url: str) -> bool:
+    parsed = urlparse(url)
+    seed = urlparse(seed_url)
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    if parsed.netloc and seed.netloc and parsed.netloc != seed.netloc:
+        return False
+    if parsed.query.startswith("s=") or "/?s=" in url:
+        return False
+    if any(parsed.path.lower().endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".gif", ".pdf", ".hwp", ".hwpx", ".zip"]):
+        return False
+    return True
+
+
+def _url_key(url: str) -> str:
+    parsed = urlparse(url)
+    return f"{parsed.netloc}{parsed.path}?{parsed.query}".rstrip("?")
 
 
 def _suji_url_key(url: str) -> str:
@@ -214,6 +318,91 @@ def _discovery_score(text: str, href: str) -> int:
     if any(noise in compact for noise in ["주민자치센터", "문화행사", "제설활동", "강좌"]):
         score -= 30
     return score
+
+
+def _elderly_discovery_score(text: str, href: str) -> int:
+    compact = f"{text} {href}"
+    score = 0
+    score += sum(30 for keyword in ELDERLY_DISCOVERY_KEYWORDS if keyword in compact)
+    score += sum(20 for marker in DETAIL_MARKERS if marker in compact)
+    if any(keyword in compact for keyword in ["www18_02", "oldJob", "nowonbokjisaem", "agency", "department"]):
+        score += 15
+    score -= sum(40 for keyword in ELDERLY_EXCLUDE_KEYWORDS if keyword in compact)
+    return score
+
+
+def _infer_discovered_category(text: str) -> str:
+    if any(keyword in text for keyword in ["기초연금", "노인일자리", "수당", "급여", "활동비", "일자리"]):
+        return "finance"
+    if any(keyword in text for keyword in ["치매", "방문건강", "방문간호", "보건", "검진"]):
+        return "medical"
+    if any(keyword in text for keyword in ["돌봄", "맞춤돌봄", "독거노인", "실버케어"]):
+        return "care"
+    if any(keyword in text for keyword in ["경로당", "무료급식", "도시락"]):
+        return "living"
+    return "living"
+
+
+def _make_elderly_target(source: dict[str, Any], url: str, title: str) -> dict[str, Any]:
+    title = _normalize_text(title) or source["source_prefix"]
+    focus_keywords = [keyword for keyword in ELDERLY_DISCOVERY_KEYWORDS if keyword in title]
+    focus_keywords.extend(["지원대상", "신청방법", "지원내용", "문의", "담당부서"])
+    text_for_category = f"{title} {url}"
+    return {
+        "region": source["region"],
+        "sub_region": source["sub_region"],
+        "area_detail": source.get("area_detail", ""),
+        "source_name": f"{source['source_prefix']} {title[:60]}",
+        "source_type": "elderly_discovery",
+        "url": url,
+        "focus_keywords": list(dict.fromkeys(focus_keywords)),
+        "category": _infer_discovered_category(text_for_category),
+        "target_age_group": "elderly",
+        "min_age": 65 if any(keyword in text_for_category for keyword in ["기초연금", "65세", "노인", "어르신"]) else None,
+    }
+
+
+def discover_elderly_region_targets(limit_per_region: int = 8) -> list[dict[str, Any]]:
+    discovered: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+
+    for source in REGION_ELDERLY_SOURCES:
+        candidates: list[tuple[int, dict[str, Any]]] = []
+        for seed_url in source["seed_urls"]:
+            try:
+                html = _fetch_html(seed_url)
+                soup = BeautifulSoup(html, "html.parser")
+            except Exception as exc:
+                print(f"  ⚠ 노인복지 후보 탐색 실패 ({seed_url}): {exc}")
+                continue
+
+            seed_title = source.get("seed_titles", {}).get(seed_url) or _extract_html_title(html, source["source_prefix"])
+            seed_text = _normalize_text(soup.get_text(" ", strip=True))[:4000]
+            seed_score = _elderly_discovery_score(f"{seed_title} {seed_text}", seed_url)
+            if seed_score >= 40:
+                key = _url_key(seed_url)
+                if key not in seen_urls:
+                    seen_urls.add(key)
+                    candidates.append((seed_score, _make_elderly_target(source, seed_url, seed_title)))
+
+            for anchor in soup.find_all("a"):
+                title = _normalize_text(anchor.get_text(" ", strip=True))
+                href = anchor.get("href") or ""
+                if not title or not href:
+                    continue
+                url = urljoin(seed_url, href)
+                key = _url_key(url)
+                if key in seen_urls or not _is_allowed_discovery_url(url, seed_url):
+                    continue
+                score = _elderly_discovery_score(title, url)
+                if score < 50:
+                    continue
+                seen_urls.add(key)
+                candidates.append((score, _make_elderly_target(source, url, title)))
+
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        discovered.extend(target for _, target in candidates[:limit_per_region])
+    return discovered
 
 
 def discover_suji_dong_targets(limit: int = 12) -> list[dict[str, Any]]:

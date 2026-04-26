@@ -45,9 +45,10 @@ python batch/welfare_ai_processor.py --phase 2
 
 지자체 홈페이지 웹 수집은 통합 복지서비스 배치와 분리해 `batch/local_welfare_batch.py`에서 실행합니다. GitHub Actions의 `CareWay 지역 복지 수집 로봇` workflow에서 수동 실행합니다.
 
-현재 파일럿 대상은 다음 두 지역입니다.
+현재 파일럿 수집은 고정 URL과 지역별 노인복지 후보 자동 탐색을 함께 사용합니다.
 
-- 충북 괴산군
-- 경기 용인시 수지구
+- 충북 괴산군: 고정 노인일자리 페이지
+- 경기 용인시: 노인일자리, 기초연금, 노인돌봄 관련 페이지 자동 탐색
+- 서울 노원구: 노원 복지샘 기반 어르신 복지 페이지 자동 탐색
 
-지자체/보건소 관련 웹페이지를 읽어 `welfare_services`에 `source = local_site_pilot`으로 저장합니다. 실행 시 기존 파일럿 데이터는 먼저 삭제하고 새 기준으로 다시 수집합니다.
+지자체/복지포털 관련 웹페이지를 읽어 `welfare_services`에 `source = local_site_pilot`으로 저장합니다. 실행 시 기존 파일럿 데이터는 먼저 삭제하고 새 기준으로 다시 수집합니다.

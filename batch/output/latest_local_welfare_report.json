@@ -1,0 +1,54 @@
+{
+  "started_at": "2026-04-26T15:45:41.021371+00:00",
+  "finished_at": "2026-04-26T15:46:47.707788+00:00",
+  "target": "",
+  "reset_existing": false,
+  "stats": {
+    "candidates": 0,
+    "promoted": 0,
+    "held": 0,
+    "skipped": 3,
+    "failed": 3,
+    "quota": 0,
+    "warnings": 0
+  },
+  "promoted": [],
+  "held": [],
+  "skipped": [
+    {
+      "source_name": "용인시 노인복지관 운영",
+      "url": "https://www.yongin.go.kr/home/www/www18/www18_02/www18_02_02.jsp",
+      "reason": "not_service_like"
+    },
+    {
+      "source_name": "노원구 노원시니어클럽",
+      "url": "https://www.nowonbokjisaem.co.kr/agency/%eb%85%b8%ec%9b%90%ec%8b%9c%eb%8b%88%ec%96%b4%ed%81%b4%eb%9f%bd/",
+      "reason": "not_service_like"
+    },
+    {
+      "source_name": "노원구 노원구청 고령사회정책과",
+      "url": "https://www.nowonbokjisaem.co.kr/department/%eb%85%b8%ec%9b%90%ea%b5%ac%ec%b2%ad-%ea%b3%a0%eb%a0%b9%ec%82%ac%ed%9a%8c%ec%a0%95%ec%b1%85%ea%b3%bc/",
+      "reason": "not_service_like"
+    }
+  ],
+  "failed": [
+    {
+      "source_name": "괴산군 노인일자리",
+      "url": "https://www.goesan.go.kr/welfare/contents.do?key=312",
+      "reason": "upsert_failed",
+      "error": "{'message': 'new row violates row-level security policy for table \"local_welfare_candidates\"', 'code': '42501', 'hint': None, 'details': None}"
+    },
+    {
+      "source_name": "용인시 노인일자리",
+      "url": "https://www.yongin.go.kr/home/job/yiJobInfo/oldJob.jsp",
+      "reason": "upsert_failed",
+      "error": "{'message': 'new row violates row-level security policy for table \"local_welfare_candidates\"', 'code': '42501', 'hint': None, 'details': None}"
+    },
+    {
+      "source_name": "노원구 기초연금",
+      "url": "https://www.nowonbokjisaem.co.kr/------------/---------------------/%ea%b8%b0%ec%b4%88%ec%97%b0%ea%b8%88/",
+      "reason": "upsert_failed",
+      "error": "{'message': 'new row violates row-level security policy for table \"local_welfare_candidates\"', 'code': '42501', 'hint': None, 'details': None}"
+    }
+  ]
+}

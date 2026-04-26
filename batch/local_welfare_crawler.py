@@ -621,5 +621,8 @@ def fetch_local_pilot_page(target: dict[str, Any]) -> dict[str, Any] | None:
         response.encoding = response.apparent_encoding or response.encoding
         return _parse_local_html(target, response.text)
     except Exception as exc:
+        page = _fetch_with_browser(target)
+        if page:
+            return page
         print(f"  ⚠ 파일럿 페이지 수집 실패 ({target['source_name']}): {exc}")
-        return _fetch_with_browser(target)
+        return None

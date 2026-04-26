@@ -394,7 +394,7 @@ def run() -> int:
     print("=" * 60)
     print("  CareWay 지역 복지 수집 로봇")
     print("=" * 60)
-    print("\n━━━ LOCAL CRAWLER: 괴산군/용인시 수지구 파일럿 수집 ━━━")
+    print("\n━━━ LOCAL CRAWLER: 지역 노인복지 파일럿 수집 ━━━")
 
     ok = skip = fail = quota = 0
     supabase.table("welfare_services").delete().eq("source", "local_site_pilot").execute()

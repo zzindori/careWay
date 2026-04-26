@@ -27,3 +27,7 @@ comment on table public.local_welfare_candidates is
   'Staging table for local welfare crawler pages before promotion to welfare_services.';
 
 alter table public.local_welfare_candidates enable row level security;
+
+grant all on table public.local_welfare_candidates to service_role;
+
+notify pgrst, 'reload schema';

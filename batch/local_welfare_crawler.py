@@ -16,6 +16,9 @@ from urllib.parse import parse_qs, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup, Comment
 
+REQUEST_TIMEOUT_SECONDS = 10
+BROWSER_TIMEOUT_MS = 15000
+
 
 WEB_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -236,7 +239,7 @@ def _extract_first_phone(text: str) -> str:
 
 def _fetch_html(url: str) -> str:
     try:
-        response = requests.get(url, headers=WEB_HEADERS, timeout=20)
+        response = requests.get(url, headers=WEB_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
         response.encoding = response.apparent_encoding or response.encoding
         return response.text
@@ -257,7 +260,7 @@ def _fetch_html_with_browser(url: str) -> str:
             ignore_https_errors=True,
         )
         page = context.new_page()
-        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        page.goto(url, wait_until="domcontentloaded", timeout=BROWSER_TIMEOUT_MS)
         html = page.content()
         browser.close()
     return html
@@ -619,7 +622,7 @@ def _fetch_with_browser(target: dict[str, Any]) -> dict[str, Any] | None:
                 ignore_https_errors=True,
             )
             page = context.new_page()
-            page.goto(target["url"], wait_until="domcontentloaded", timeout=30000)
+            page.goto(target["url"], wait_until="domcontentloaded", timeout=BROWSER_TIMEOUT_MS)
             html = page.content()
             browser.close()
         return _parse_local_html(target, html)
@@ -630,7 +633,7 @@ def _fetch_with_browser(target: dict[str, Any]) -> dict[str, Any] | None:
 
 def fetch_local_pilot_page(target: dict[str, Any]) -> dict[str, Any] | None:
     try:
-        response = requests.get(target["url"], headers=WEB_HEADERS, timeout=20)
+        response = requests.get(target["url"], headers=WEB_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS)
         if response.status_code == 429:
             return {"quota_exceeded": True}
         response.raise_for_status()

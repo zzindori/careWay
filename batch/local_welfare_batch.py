@@ -572,11 +572,13 @@ def run() -> int:
         raise RuntimeError("SUPABASE_SERVICE_KEY is required")
 
     supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    key_role = _supabase_key_role(SUPABASE_SERVICE_KEY)
     report = {
         "started_at": datetime.now(timezone.utc).isoformat(),
         "finished_at": None,
         "target": LOCAL_WELFARE_CRAWL_TARGET,
         "reset_existing": LOCAL_WELFARE_RESET_EXISTING,
+        "supabase_key_role": key_role,
         "stats": {"candidates": 0, "promoted": 0, "held": 0, "skipped": 0, "failed": 0, "quota": 0, "warnings": 0},
         "promoted": [],
         "held": [],
@@ -586,7 +588,7 @@ def run() -> int:
     print("=" * 60)
     print("  CareWay 지역 복지 수집 로봇")
     print("=" * 60)
-    print(f"  Supabase key role: {_supabase_key_role(SUPABASE_SERVICE_KEY)}")
+    print(f"  Supabase key role: {key_role}")
     print("\n━━━ LOCAL CRAWLER: 지역 노인복지 파일럿 수집 ━━━")
 
     candidates = promoted = held = skip = fail = quota = 0

@@ -155,20 +155,9 @@ def _build_applmet_list(apply_place: str) -> list[dict]:
     return methods
 
 
-def _build_summary(name: str, target_info: str, benefit_info: str, apply_place: str) -> str:
-    parts = [f"{name} 관련 지역 복지 안내입니다."]
-    if target_info:
-        parts.append(f"대상은 {target_info[:120]}입니다.")
-    if benefit_info:
-        parts.append(f"주요 내용은 {benefit_info[:140]}입니다.")
-    if apply_place:
-        parts.append(f"문의나 신청은 {apply_place[:100]}에서 확인하세요.")
-    return " ".join(parts)[:500]
-
-
 def _build_search_tokens(payload: dict) -> list[str]:
     bag = []
-    for key in ["name", "description", "target_info", "benefit_info", "apply_place", "detail_content", "raw_content", "ai_summary", "region", "sub_region", "category"]:
+    for key in ["name", "description", "target_info", "benefit_info", "apply_place", "detail_content", "raw_content", "region", "sub_region", "category"]:
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             bag.extend(_split_search_words(value))
@@ -264,8 +253,8 @@ def _build_payload(target: dict, page: dict) -> dict | None:
         "detail_content": text[:2000],
         "raw_content": raw_content,
         "source": "local_site_pilot",
+        "ai_summary": "",
     }
-    payload["ai_summary"] = _build_summary(payload["name"], payload["target_info"], payload["benefit_info"], payload["apply_place"])
     payload["search_tokens"] = _build_search_tokens(payload)
     return payload
 

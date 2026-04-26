@@ -11,6 +11,7 @@ from __future__ import annotations
 import html as html_lib
 import re
 from typing import Any
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup, Comment
@@ -53,6 +54,41 @@ LOCAL_PILOT_KEYWORDS = [
     "노인", "어르신", "고령", "65세", "60세", "기초연금", "장기요양",
     "치매", "방문건강", "방문간호", "돌봄", "독거", "무료급식", "도시락",
     "보건소", "복지관", "행정복지센터", "주민센터", "수지구", "괴산군",
+    "장애인", "특별공급", "복지사각지대", "취약계층",
+]
+
+SUJI_DONG_NAMES = [
+    "풍덕천1동",
+    "풍덕천2동",
+    "신봉동",
+    "죽전1동",
+    "죽전2동",
+    "죽전3동",
+    "동천동",
+    "상현1동",
+    "상현2동",
+    "상현3동",
+    "성복동",
+]
+
+SUJI_DISCOVERY_SEEDS = [
+    "https://www.sujigu.go.kr/index.asp",
+    "https://www.sujigu.go.kr/lmth/03com02.asp",
+]
+
+SUJI_DISCOVERY_KEYWORDS = [
+    "노인",
+    "어르신",
+    "기초연금",
+    "장애인",
+    "특별공급",
+    "돌봄",
+    "복지",
+    "취약계층",
+    "복지사각지대",
+    "일자리",
+    "무료급식",
+    "이웃돕기",
 ]
 
 
@@ -133,6 +169,97 @@ def _extract_html_title(html: str, fallback: str) -> str:
 def _extract_first_phone(text: str) -> str:
     match = re.search(r"(?:0\d{1,2})-\d{3,4}-\d{4}", text or "")
     return match.group(0) if match else ""
+
+
+def _fetch_html(url: str) -> str:
+    response = requests.get(url, headers=WEB_HEADERS, timeout=20)
+    response.raise_for_status()
+    response.encoding = response.apparent_encoding or response.encoding
+    return response.text
+
+
+def _is_allowed_suji_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    if parsed.netloc and not parsed.netloc.endswith("sujigu.go.kr"):
+        return False
+    # 동 행정복지센터 소개 페이지는 서비스가 아니므로, 우선 동소식 상세 글만 후보화한다.
+    return parsed.path.endswith("/lmth/03com02.asp") and "no=" in parsed.query
+
+
+def _suji_url_key(url: str) -> str:
+    parsed = urlparse(url)
+    no = parse_qs(parsed.query).get("no", [""])[0]
+    return f"{parsed.path}?no={no}" if no else url
+
+
+def _extract_dong_name(text: str) -> str:
+    for dong in SUJI_DONG_NAMES:
+        if dong in text:
+            return dong
+    return "수지구"
+
+
+def _discovery_score(text: str, href: str) -> int:
+    compact = f"{text} {href}"
+    score = 0
+    if any(dong in compact for dong in SUJI_DONG_NAMES):
+        score += 30
+    score += sum(20 for keyword in SUJI_DISCOVERY_KEYWORDS if keyword in compact)
+    if "동소식" in compact:
+        score += 10
+    if "03com02" in href:
+        score += 10
+    if any(noise in compact for noise in ["주민자치센터", "문화행사", "제설활동", "강좌"]):
+        score -= 30
+    return score
+
+
+def discover_suji_dong_targets(limit: int = 12) -> list[dict[str, Any]]:
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    seen_urls: set[str] = set()
+
+    for seed in SUJI_DISCOVERY_SEEDS:
+        try:
+            soup = BeautifulSoup(_fetch_html(seed), "html.parser")
+        except Exception as exc:
+            print(f"  ⚠ 수지구 동소식 탐색 실패 ({seed}): {exc}")
+            continue
+
+        for anchor in soup.find_all("a"):
+            title = _normalize_text(anchor.get_text(" ", strip=True))
+            href = anchor.get("href") or ""
+            if not title or not href:
+                continue
+            url = urljoin(seed, href)
+            key = _suji_url_key(url)
+            if key in seen_urls or not _is_allowed_suji_url(url):
+                continue
+            score = _discovery_score(title, url)
+            if score < 40:
+                continue
+
+            dong = _extract_dong_name(title)
+            focus_keywords = [keyword for keyword in SUJI_DISCOVERY_KEYWORDS if keyword in title]
+            if dong != "수지구":
+                focus_keywords.insert(0, dong)
+            focus_keywords.extend(["지원", "신청", "대상", "문의"])
+            target = {
+                "region": "경기",
+                "sub_region": "용인시",
+                "area_detail": dong,
+                "source_name": f"{dong} {title[:60]}",
+                "source_type": "dong_notice",
+                "url": url,
+                "focus_keywords": list(dict.fromkeys(focus_keywords)),
+                "category": "living",
+            }
+            seen_urls.add(key)
+            candidates.append((score, target))
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return [target for _, target in candidates[:limit]]
 
 
 def _attr_text(node) -> str:

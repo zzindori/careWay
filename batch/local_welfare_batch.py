@@ -16,6 +16,7 @@ from supabase import create_client
 from local_welfare_crawler import (
     LOCAL_PILOT_KEYWORDS,
     PILOT_LOCAL_TARGETS,
+    discover_suji_dong_targets,
     fetch_local_pilot_page,
     strip_html,
 )
@@ -126,6 +127,11 @@ SEARCH_TOKEN_KEYWORDS = {
     "바우처",
     "돌봄",
     "방문건강",
+    "장애인",
+    "특별공급",
+    "주거지원",
+    "복지사각지대",
+    "취약계층",
     "치매",
     "무료급식",
     "도시락",
@@ -303,6 +309,13 @@ def _is_service_like(text: str) -> bool:
         "기초연금",
         "노인일자리",
         "방문건강",
+        "장애인",
+        "특별공급",
+        "신청기간",
+        "신청대상",
+        "접수기간",
+        "입주자",
+        "공급",
         "치매",
         "무료급식",
         "돌봄",
@@ -387,7 +400,16 @@ def run() -> int:
     supabase.table("welfare_services").delete().eq("source", "local_site_pilot").execute()
     print("  기존 파일럿 데이터 정리 완료")
 
-    for target in PILOT_LOCAL_TARGETS:
+    discovered_targets = discover_suji_dong_targets()
+    if discovered_targets:
+        print(f"  수지구 동소식 후보 발견: {len(discovered_targets)}건")
+
+    targets = PILOT_LOCAL_TARGETS + discovered_targets
+    seen_urls = set()
+    for target in targets:
+        if target["url"] in seen_urls:
+            continue
+        seen_urls.add(target["url"])
         print(f"  {target['source_name']} 수집 중... ", end="", flush=True)
         page = fetch_local_pilot_page(target)
         if not page:

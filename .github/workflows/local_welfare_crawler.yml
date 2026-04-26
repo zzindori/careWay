@@ -17,6 +17,11 @@ on:
         options:
           - pilot
           - nationwide
+      reset_existing:
+        description: '기존 지역 수집 데이터 삭제 후 재수집'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: careway-local-welfare-crawler
@@ -30,6 +35,7 @@ jobs:
     env:
       SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       LOCAL_WELFARE_CRAWL_TARGET: ${{ inputs.target }}
+      LOCAL_WELFARE_RESET_EXISTING: ${{ inputs.reset_existing || 'false' }}
       LOCAL_WELFARE_REPORT_PATH: batch/output/local_welfare_report.json
 
     steps:

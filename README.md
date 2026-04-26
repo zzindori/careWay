@@ -51,6 +51,6 @@ python batch/welfare_ai_processor.py --phase 2
 - 경기 용인시: 노인일자리, 기초연금, 노인돌봄 관련 페이지 자동 탐색
 - 서울 노원구: 노원 복지샘 기반 어르신 복지 페이지 자동 탐색
 
-지자체/복지포털 관련 웹페이지를 읽어 `welfare_services`에 `source = local_site_pilot`으로 저장합니다. 실행 시 기존 파일럿 데이터는 먼저 삭제하고 새 기준으로 다시 수집합니다.
+지자체/복지포털 관련 웹페이지를 읽어 `welfare_services`에 `source = local_site_pilot`으로 저장합니다. 기본 실행은 기존 데이터를 유지하고 `online_url` 기준으로 누적 upsert합니다. 수동 실행에서 `reset_existing`을 켠 경우에만 기존 지역 수집 데이터를 삭제하고 재수집합니다.
 
 실행 후 `batch/output/local_welfare_report.json` 리포트를 생성하고 GitHub Actions artifact(`local-welfare-report`)로 업로드합니다. 리포트에는 저장/스킵/실패 건수, 저장 데이터 샘플, 품질 경고가 포함됩니다.

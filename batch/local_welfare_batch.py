@@ -30,6 +30,7 @@ SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 WEB_SCRAPE_DELAY = float(os.environ.get("LOCAL_WELFARE_CRAWL_DELAY", "0.5"))
 LOCAL_WELFARE_CRAWL_TARGET = os.environ.get("LOCAL_WELFARE_CRAWL_TARGET", "pilot")
 LOCAL_WELFARE_REPORT_PATH = os.environ.get("LOCAL_WELFARE_REPORT_PATH", "batch/output/local_welfare_report.json")
+LOCAL_WELFARE_RESET_EXISTING = os.environ.get("LOCAL_WELFARE_RESET_EXISTING", "false").lower() in {"1", "true", "yes"}
 
 ALLOWED_SERVICE_TAGS = {
     "dementia",
@@ -528,6 +529,7 @@ def run() -> int:
         "started_at": datetime.now(timezone.utc).isoformat(),
         "finished_at": None,
         "target": LOCAL_WELFARE_CRAWL_TARGET,
+        "reset_existing": LOCAL_WELFARE_RESET_EXISTING,
         "stats": {"saved": 0, "skipped": 0, "failed": 0, "quota": 0, "warnings": 0},
         "saved": [],
         "skipped": [],
@@ -539,8 +541,11 @@ def run() -> int:
     print("\n━━━ LOCAL CRAWLER: 지역 노인복지 파일럿 수집 ━━━")
 
     ok = skip = fail = quota = 0
-    supabase.table("welfare_services").delete().eq("source", "local_site_pilot").execute()
-    print("  기존 파일럿 데이터 정리 완료")
+    if LOCAL_WELFARE_RESET_EXISTING:
+        supabase.table("welfare_services").delete().eq("source", "local_site_pilot").execute()
+        print("  기존 지역 수집 데이터 정리 완료")
+    else:
+        print("  기존 지역 수집 데이터 유지: URL 기준 누적 upsert")
 
     discovered_targets = discover_elderly_region_targets()
     if discovered_targets:

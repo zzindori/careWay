@@ -30,4 +30,14 @@ alter table public.local_welfare_candidates enable row level security;
 
 grant all on table public.local_welfare_candidates to service_role;
 
+drop policy if exists local_welfare_candidates_service_role_all
+  on public.local_welfare_candidates;
+
+create policy local_welfare_candidates_service_role_all
+  on public.local_welfare_candidates
+  for all
+  to service_role
+  using (true)
+  with check (true);
+
 notify pgrst, 'reload schema';

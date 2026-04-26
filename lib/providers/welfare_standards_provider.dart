@@ -70,11 +70,11 @@ class WelfareStandardsProvider extends ChangeNotifier {
     final pct = _levelPct[level] ?? '';
     if (level == 10) {
       final man = (std.pct120 / 10000).floor();
-      return '기준중위소득 120% 초과 (월 ${man}만원 이상)';
+      return '기준중위소득 120% 초과 (월 $man만원 이상)';
     }
     final limit = amounts[level] ?? 0;
     final man = (limit / 10000).floor();
-    return '기준중위소득 $pct 이하 · 월 약 ${man}만원 이하 (1인가구)';
+    return '기준중위소득 $pct 이하 · 월 약 $man만원 이하 (1인가구)';
   }
 
   // ─────────────────────────────────────────────

@@ -232,11 +232,11 @@ class ProfileCard extends StatelessWidget {
 
     // 2순위: 등급 신청중
     if (profile.ltcGradeStatus == 'applying') {
-      return _AdvisoryTip(
+      return const _AdvisoryTip(
         icon: Icons.hourglass_top_rounded,
         condition: '장기요양등급 심사 중',
         message: '판정 결과에 따라 이용 가능한 혜택이 추가될 예정이에요',
-        color: const Color(0xFF1565C0),
+        color: Color(0xFF1565C0),
       );
     }
 
@@ -244,21 +244,21 @@ class ProfileCard extends StatelessWidget {
     if (!profile.isBasicRecipient &&
         profile.incomeLevel != null &&
         profile.incomeLevel! <= 3) {
-      return _AdvisoryTip(
+      return const _AdvisoryTip(
         icon: Icons.info_outline,
         condition: '소득 하위 30% · 기초수급 미신청',
         message: '기초생활수급 신청 자격이 있을 수 있어요',
-        color: const Color(0xFF2E7D32),
+        color: Color(0xFF2E7D32),
       );
     }
 
     // 4순위: 독거 + 등급 없음
     if (profile.liveAlone && profile.ltcGradeStatus == 'none') {
-      return _AdvisoryTip(
+      return const _AdvisoryTip(
         icon: Icons.home_outlined,
         condition: '독거 · 장기요양등급 미신청',
         message: '독거 어르신 전용 돌봄 서비스를 확인해보세요',
-        color: const Color(0xFF00695C),
+        color: Color(0xFF00695C),
       );
     }
 

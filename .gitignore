@@ -53,3 +53,4 @@ __pycache__/
 .env
 .venv/
 venv/
+batch/.welfare_batch_checkpoint.json

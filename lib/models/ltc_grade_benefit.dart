@@ -30,6 +30,6 @@ class LtcGradeBenefit {
   String get monthlyLimitLabel {
     final man = (monthlyLimit / 10000).floor();
     final rest = monthlyLimit % 10000;
-    return rest == 0 ? '월 최대 ${man}만원' : '월 최대 ${man}만 ${rest}원';
+    return rest == 0 ? '월 최대 $man만원' : '월 최대 $man만 $rest원';
   }
 }

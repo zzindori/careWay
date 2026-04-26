@@ -117,7 +117,7 @@ class WelfareService {
   }
 
   bool get isElderlyTargeted {
-    if (targetAgeGroup == 'elderly' || targetAgeGroup == 'all') return true;
+    if (targetAgeGroup == 'elderly') return true;
     if (targetAgeGroup == 'youth' ||
         targetAgeGroup == 'child' ||
         targetAgeGroup == 'infant') {
@@ -324,6 +324,20 @@ class WelfareService {
   }
 
   bool get canShowMatchedBadge => hasFilterCriteria || isElderlyTargeted;
+
+  bool get shouldShowInGeneralList {
+    if (targetAgeGroup == 'youth' ||
+        targetAgeGroup == 'child' ||
+        targetAgeGroup == 'infant' ||
+        targetAgeGroup == 'disabled') {
+      return false;
+    }
+    if ((targetAgeGroup == 'unknown' || targetAgeGroup == 'all') && _isObviouslyNotElderly) {
+      return false;
+    }
+    if (requiresDisability) return false;
+    return true;
+  }
 
   factory WelfareService.fromJson(Map<String, dynamic> json) {
     return WelfareService(

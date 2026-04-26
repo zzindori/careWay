@@ -11,7 +11,7 @@ void main() {
       region: '서울특별시',
       subRegion: '강남구',
       healthStatus: 'fair',
-      hasLtcGrade: true,
+      ltcGradeStatus: 'has',
       ltcGrade: 3,
       incomeLevel: 4,
       isBasicRecipient: true,

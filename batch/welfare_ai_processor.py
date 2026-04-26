@@ -2,6 +2,7 @@
 """
 CareWay 복지서비스 통합 배치 파이프라인
 ========================================
+Phase 0N: 중앙부처복지서비스 목록 수집 → DB 신규 등록
 Phase 0: 지자체복지서비스 목록 수집 → DB 신규 등록
 Phase 1: 복지로 API 상세 조회 → DB 저장 (신청방법, 문의처, 상세내용)
 Phase 2: Gemini AI 분류 → DB 저장 (target_age_group, 필터 조건)
@@ -26,14 +27,16 @@ Phase 2: Gemini AI 분류 → DB 저장 (target_age_group, 필터 조건)
   set WELFARE_API_KEY=c488...
 
   # 패키지
-  pip install google-generativeai supabase requests
+  pip install -r batch/requirements.txt
 
   # 실행 (전체)
   python welfare_ai_processor.py
 
-  # Phase만 선택 실행
-  python welfare_ai_processor.py --phase 1   # API 수집만
-  python welfare_ai_processor.py --phase 2   # AI 분류만
+  # 운영용 묶음 실행
+  python welfare_ai_processor.py --phase daily       # 신규 수집 + 상세 보강 + 신규 AI 분류 + 보정
+  python welfare_ai_processor.py --phase collect     # Gemini 호출 없이 수집/보정
+  python welfare_ai_processor.py --phase reclassify  # 오래된 AI 분류 순환 재검토
+  python welfare_ai_processor.py --phase repair      # 보정만 실행
 
 비용: Gemini 유료/쿼터 정책에 따름. 일일 스케줄은 GitHub Actions에서
   PHASE2_LIMIT(기본 400) 등으로 호출 상한을 둔다.
@@ -56,23 +59,27 @@ from supabase import create_client
 
 # ── 설정 ──────────────────────────────────────────────────────────────────────
 
-SUPABASE_URL = "https://dnnidnqwkjmbssxixpjg.supabase.co"
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://dnnidnqwkjmbssxixpjg.supabase.co")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 WELFARE_API_KEY = os.environ.get("WELFARE_API_KEY", "")
 LOCAL_WELFARE_API_KEY = os.environ.get("LOCAL_WELFARE_API_KEY", "")
 SOCIAL_SERVICE_API_KEY = os.environ.get("SOCIAL_SERVICE_API_KEY", "")
 
+WELFARE_LIST_URL = "https://apis.data.go.kr/B554287/NationalWelfareInformationsV001/NationalWelfarelistV001"
 WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/NationalWelfareInformationsV001/NationalWelfaredetailedV001"
 
 # 지자체복지서비스 API (한국사회보장정보원, 동일 제공기관 B554287)
 LOCAL_WELFARE_LIST_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfarelist"
-LOCAL_WELFARE_DETAIL_URL = "https://apis.data.go.kr/B554287/LocalGovernmentWelfareInformations/LcgvWelfaredetailed"  # 사용 안 함 (웹 스크래핑으로 대체)
 BOKJIRO_WEB_URL = "https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52011M.do"
 SOCIAL_SERVICE_PROVIDER_URL = "https://api.socialservice.or.kr:444/api/service/provider/providerList"
 
 MODEL = "gemini-2.0-flash"
 API_REQUEST_DELAY = 1.2    # 복지로 API rate limit 방지 (개발계정 100 RPM → 최소 0.6초, 여유분 포함)
+# 지자체 목록(LcgvWelfarelist)은 연속 호출 시 429가 잘 남 → 간격·재시도 별도
+LOCAL_WELFARE_LIST_DELAY = float(os.environ.get("LOCAL_WELFARE_LIST_DELAY", "2.5"))
+LOCAL_WELFARE_LIST_429_RETRIES = int(os.environ.get("LOCAL_WELFARE_LIST_429_RETRIES", "8"))
+LOCAL_WELFARE_LIST_429_BASE_WAIT = float(os.environ.get("LOCAL_WELFARE_LIST_429_BASE_WAIT", "12"))
 WEB_SCRAPE_DELAY = 0.5     # 복지로 웹 스크래핑 딜레이 (API 한도 없음, 서버 부하 방지 목적)
 GEMINI_DELAY = 4.5         # Gemini 무료 티어: 15 RPM → 4초 간격
 MAX_DETAIL_API_RETRIES = 3
@@ -359,12 +366,15 @@ def validate_env(phase=None):
     missing = []
     if not SUPABASE_SERVICE_KEY:
         missing.append("SUPABASE_SERVICE_KEY")
-    if phase in (None, "1", "1_lite", "1_web"):
+    if phase in (None, "daily", "both", "collect", "reclassify", "0_national", "1", "1_lite", "1_web", "2r"):
         if not WELFARE_API_KEY:
             missing.append("WELFARE_API_KEY")
-    if phase in (None, "2", "2r"):
+    if phase in (None, "daily", "both", "reclassify", "2", "2r"):
         if not GEMINI_API_KEY:
             missing.append("GEMINI_API_KEY")
+    if phase in (None, "daily", "both", "collect", "collect_pilot_local", "0", "0_detail"):
+        if not LOCAL_WELFARE_API_KEY:
+            missing.append("LOCAL_WELFARE_API_KEY")
     # SOCIAL_SERVICE_API_KEY 없으면 run_phase_providers 가 로그만 남기고 스킵 (종료하지 않음)
     if missing:
         print(f"❌ 환경변수 미설정: {', '.join(missing)}")
@@ -431,14 +441,20 @@ CATEGORY_MAP = {
 }
 
 
-def fetch_local_welfare_list(page: int, num_rows: int = 100) -> list:
-    """지자체복지서비스 목록 1페이지 조회"""
+def fetch_local_welfare_list(page: int, num_rows: int = 100) -> tuple[list, int] | str:
+    """지자체복지서비스 목록 1페이지 조회. 429는 당일 한도 초과로 보고 호출자가 중단한다."""
+    params = {
+        "serviceKey": LOCAL_WELFARE_API_KEY,
+        "pageNo": page,
+        "numOfRows": num_rows,
+    }
+
     try:
-        resp = requests.get(LOCAL_WELFARE_LIST_URL, params={
-            "serviceKey": LOCAL_WELFARE_API_KEY,
-            "pageNo": page,
-            "numOfRows": num_rows,
-        }, timeout=15)
+        resp = requests.get(LOCAL_WELFARE_LIST_URL, params=params, timeout=30)
+        if resp.status_code == 429:
+            print(f"\n    ⚠ 429 Too Many Requests (page {page}) → 오늘 목록 수집 중단")
+            return "QUOTA_EXCEEDED"
+
         resp.raise_for_status()
         root = ET.fromstring(resp.text)
 
@@ -461,14 +477,19 @@ def fetch_local_welfare_list(page: int, num_rows: int = 100) -> list:
                 "source": "local",
             })
 
-        # 총 건수 파악
         total_el = root.find(".//totalCount")
         if total_el is None:
             total_el = root.find(".//totCnt")
         total = int(total_el.text) if total_el is not None and total_el.text else len(items)
         return items, total
 
-    except Exception as e:
+    except requests.HTTPError as e:
+        print(f"    목록 조회 오류 (page {page}): {e}")
+        return [], 0
+    except (ET.ParseError, ValueError) as e:
+        print(f"    목록 파싱 오류 (page {page}): {e}")
+        return [], 0
+    except requests.RequestException as e:
         print(f"    목록 조회 오류 (page {page}): {e}")
         return [], 0
 
@@ -500,6 +521,167 @@ def _fetch_all_local_online_urls(supabase) -> set[str]:
     return existing_ids
 
 
+def fetch_national_welfare_list(page: int, num_rows: int = 100) -> tuple[list, int] | str:
+    """중앙부처복지서비스 목록 1페이지 조회. 이미 있는 데이터는 이후 upsert 단계에서 제외한다."""
+    params = {
+        "serviceKey": WELFARE_API_KEY,
+        "pageNo": page,
+        "numOfRows": num_rows,
+    }
+
+    try:
+        resp = requests.get(WELFARE_LIST_URL, params=params, timeout=30)
+        if resp.status_code == 429:
+            print(f"\n    ⚠ 국가 목록 조회 429 (page {page}) → 오늘 목록 수집 중단")
+            return "QUOTA_EXCEEDED"
+        resp.raise_for_status()
+        root = ET.fromstring(resp.text)
+
+        items = []
+        for item in root.findall(".//servList") or root.findall(".//list") or root.findall(".//item"):
+            def g(tag):
+                el = item.find(tag)
+                return (el.text or "").strip() if el is not None else ""
+
+            serv_id = g("wlfareInfoId") or g("servId") or g("welfareInfoId")
+            name = g("wlfareInfoNm") or g("wlfareSvcNm") or g("servNm") or g("svcNm")
+            description = g("servDgst") or g("summary") or g("wlfareInfoOutlCn") or name
+            items.append({
+                "serv_id": serv_id,
+                "name": name,
+                "category": CATEGORY_MAP.get(g("lifeArray") or g("category") or g("intrsThemaCd"), "living"),
+                "description": description,
+                "target_info": g("tgtrDscr") or g("trgtList") or g("target"),
+                "benefit_info": g("givBnfScpCn") or g("benefit"),
+                "apply_place": g("aplyMtd") or g("applyMethod"),
+                "region": "전국",
+                "source": "national",
+            })
+
+        total_el = root.find(".//totalCount")
+        if total_el is None:
+            total_el = root.find(".//totCnt")
+        total = int(total_el.text) if total_el is not None and total_el.text else len(items)
+        return items, total
+
+    except requests.RequestException as e:
+        print(f"    국가 목록 조회 오류 (page {page}): {e}")
+        return [], 0
+    except (ET.ParseError, ValueError) as e:
+        print(f"    국가 목록 파싱 오류 (page {page}): {e}")
+        return [], 0
+
+
+def _fetch_all_national_welfare_ids(supabase) -> set[str]:
+    """source=national 행의 welfare id를 전체 조회한다."""
+    existing_ids: set[str] = set()
+    start = 0
+    page = 1000
+    while True:
+        result = (
+            supabase.table("welfare_services")
+            .select("online_url")
+            .eq("source", "national")
+            .order("id")
+            .range(start, start + page - 1)
+            .execute()
+        )
+        rows = result.data or []
+        for r in rows:
+            welfare_id = extract_welfare_id(r.get("online_url"))
+            if welfare_id:
+                existing_ids.add(welfare_id)
+        if len(rows) < page:
+            break
+        start += page
+    return existing_ids
+
+
+def run_phase0_national(supabase) -> int:
+    """Phase 0N: 중앙부처복지서비스 목록 수집 → welfare_services 신규 등록"""
+    print("\n━━━ PHASE 0N: 중앙부처복지서비스 신규 목록 수집 ━━━")
+
+    existing_ids = _fetch_all_national_welfare_ids(supabase)
+    print(f"  기존 국가 서비스: {len(existing_ids)}개 (전체 조회)")
+
+    page, num_rows = _checkpoint_get_start_index("phase0_national") or 1, 100
+    total_new = total_skip = 0
+    if page > 1:
+        print(f"  체크포인트 복구: 국가 목록 {page}페이지부터 재개")
+
+    while True:
+        print(f"  국가 목록 페이지 {page} 조회 중...", end="", flush=True)
+        fetched = fetch_national_welfare_list(page, num_rows)
+        if fetched == "QUOTA_EXCEEDED":
+            _checkpoint_set_index("phase0_national", page)
+            print(f"\n  국가 목록 수집 중단: 다음 실행에서 {page}페이지부터 재개")
+            break
+        items, total_count = fetched
+
+        if not items:
+            _checkpoint_clear("phase0_national")
+            break
+
+        if page == 1:
+            print(f" 총 {total_count}개 서비스 발견")
+
+        new_items = [it for it in items if it["serv_id"] and it["serv_id"] not in existing_ids]
+        skip_items = len(items) - len(new_items)
+        total_skip += skip_items
+
+        for it in new_items:
+            if not it["name"]:
+                continue
+            online_url = build_bokjiro_detail_url(it["serv_id"], default_rel_code="01") or it["serv_id"]
+            try:
+                supabase.table("welfare_services").upsert({
+                    "name": it["name"],
+                    "category": it["category"],
+                    "description": it["description"] or it["name"],
+                    "target_info": it["target_info"],
+                    "benefit_info": it["benefit_info"],
+                    "apply_place": it["apply_place"],
+                    "online_url": online_url,
+                    "difficulty": 2,
+                    "is_renewable": False,
+                    "min_age": 0,
+                    "max_income_level": 10,
+                    "requires_ltc_grade": False,
+                    "requires_alone": False,
+                    "requires_basic_recipient": False,
+                    "gender": "any",
+                    "target_age_group": "unknown",
+                    "region": "전국",
+                    "search_tokens": _build_search_tokens({
+                        "name": it["name"],
+                        "description": it["description"] or it["name"],
+                        "target_info": it["target_info"],
+                        "benefit_info": it["benefit_info"],
+                        "apply_place": it["apply_place"],
+                        "region": "전국",
+                        "category": it["category"],
+                    }),
+                    "source": "national",
+                }, on_conflict="online_url").execute()
+                existing_ids.add(it["serv_id"])
+                total_new += 1
+            except Exception as e:
+                if "duplicate" not in str(e).lower():
+                    print(f"\n    ⚠ 국가 서비스 삽입 오류 ({it['serv_id']}): {e}")
+
+        print(f"  → 신규 {len(new_items)}개 등록, 중복 {skip_items}개 스킵")
+        _checkpoint_set_index("phase0_national", page + 1)
+        time.sleep(API_REQUEST_DELAY)
+
+        if len(items) < num_rows:
+            _checkpoint_clear("phase0_national")
+            break
+        page += 1
+
+    print(f"\n  Phase 0N 완료: 신규 등록={total_new}, 중복 스킵={total_skip}")
+    return total_new
+
+
 def run_phase0(supabase) -> int:
     """Phase 0: 지자체복지서비스 전체 목록 수집 → welfare_services 신규 등록"""
     print("\n━━━ PHASE 0: 지자체복지서비스 수집 ━━━")
@@ -508,14 +690,22 @@ def run_phase0(supabase) -> int:
     existing_ids = _fetch_all_local_online_urls(supabase)
     print(f"  기존 서비스: {len(existing_ids)}개 (전체 조회)")
 
-    page, num_rows = 1, 100
+    page, num_rows = _checkpoint_get_start_index("phase0_local") or 1, 100
     total_new = total_skip = 0
+    if page > 1:
+        print(f"  체크포인트 복구: 지자체 목록 {page}페이지부터 재개")
 
     while True:
         print(f"  페이지 {page} 조회 중...", end="", flush=True)
-        items, total_count = fetch_local_welfare_list(page, num_rows)
+        fetched = fetch_local_welfare_list(page, num_rows)
+        if fetched == "QUOTA_EXCEEDED":
+            _checkpoint_set_index("phase0_local", page)
+            print(f"\n  지자체 목록 수집 중단: 다음 실행에서 {page}페이지부터 재개")
+            break
+        items, total_count = fetched
 
         if not items:
+            _checkpoint_clear("phase0_local")
             break
 
         if page == 1:
@@ -565,9 +755,11 @@ def run_phase0(supabase) -> int:
                     print(f"\n    ⚠ 삽입 오류 ({it['serv_id']}): {e}")
 
         print(f"  → 신규 {len(new_items)}개 등록, 중복 {skip_items}개 스킵")
-        time.sleep(API_REQUEST_DELAY)
+        _checkpoint_set_index("phase0_local", page + 1)
+        time.sleep(LOCAL_WELFARE_LIST_DELAY)
 
         if len(items) < num_rows:   # 마지막 페이지
+            _checkpoint_clear("phase0_local")
             break
         page += 1
 
@@ -651,6 +843,239 @@ def run_phase_providers(supabase) -> int:
 
     print(f"  Phase P 완료: upsert={total_upsert}")
     return total_upsert
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# PILOT LOCAL: 지자체/보건소/복지관 웹페이지 수집 → 앱용 구조화
+# ════════════════════════════════════════════════════════════════════════════════
+
+LOCAL_PILOT_TARGETS = [
+    {
+        "region": "충북",
+        "sub_region": "괴산군",
+        "area_detail": "",
+        "source_name": "괴산군 복지",
+        "source_type": "district_welfare",
+        "url": "https://www.goesan.go.kr/welfare/index.do",
+    },
+    {
+        "region": "충북",
+        "sub_region": "괴산군",
+        "area_detail": "",
+        "source_name": "괴산군 노인일자리",
+        "source_type": "district_welfare",
+        "url": "https://www.goesan.go.kr/welfare/contents.do?key=312",
+    },
+    {
+        "region": "경기",
+        "sub_region": "용인시",
+        "area_detail": "수지구",
+        "source_name": "수지구청",
+        "source_type": "district_office",
+        "url": "https://www.sujigu.go.kr/index.asp",
+    },
+    {
+        "region": "경기",
+        "sub_region": "용인시",
+        "area_detail": "수지구",
+        "source_name": "수지구 보건소 공지",
+        "source_type": "public_health_center",
+        "url": "https://www.yongin.go.kr/user/bbs/BD_selectBbs.do?q_bbsCode=1019&q_bbscttSn=20240503134345266&q_category=main&q_clCode=3",
+    },
+]
+
+LOCAL_PILOT_KEYWORDS = [
+    "노인", "어르신", "고령", "65세", "60세", "기초연금", "장기요양",
+    "치매", "방문건강", "방문간호", "돌봄", "독거", "무료급식", "도시락",
+    "보건소", "복지관", "행정복지센터", "주민센터", "수지구", "괴산군",
+]
+
+
+def _strip_noise_html(html: str) -> str:
+    html = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", html)
+    html = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", html)
+    html = re.sub(r"(?is)<noscript[^>]*>.*?</noscript>", " ", html)
+    return html
+
+
+def _extract_html_title(html: str, fallback: str) -> str:
+    for pattern in [
+        r"(?is)<h1[^>]*>(.*?)</h1>",
+        r"(?is)<h2[^>]*>(.*?)</h2>",
+        r"(?is)<title[^>]*>(.*?)</title>",
+    ]:
+        m = re.search(pattern, html)
+        if not m:
+            continue
+        title = strip_html(m.group(1))
+        title = re.sub(r"\s+", " ", title).strip(" -|")
+        if title:
+            return title[:80]
+    return fallback
+
+
+def _extract_first_phone(text: str) -> str:
+    m = re.search(r"(?:0\d{1,2})-\d{3,4}-\d{4}", text or "")
+    return m.group(0) if m else ""
+
+
+def _infer_min_age(text: str) -> int | None:
+    m = re.search(r"(?:만\s*)?(\d{2})\s*세\s*이상", text or "")
+    if not m:
+        return None
+    age = int(m.group(1))
+    return age if 0 < age < 120 else None
+
+
+def _infer_income_level(text: str) -> int:
+    t = text or ""
+    if "기초생활수급" in t or "생계급여" in t or "의료급여" in t:
+        return 1
+    if "차상위" in t:
+        return 2
+    if "저소득" in t:
+        return 3
+    return 10
+
+
+def _build_local_pilot_summary(name: str, target_info: str, benefit_info: str, apply_place: str) -> str:
+    parts = [f"{name} 관련 지역 복지 안내입니다."]
+    if target_info:
+        parts.append(f"대상은 {target_info[:120]}입니다.")
+    if benefit_info:
+        parts.append(f"주요 내용은 {benefit_info[:140]}입니다.")
+    if apply_place:
+        parts.append(f"문의나 신청은 {apply_place[:100]}에서 확인하세요.")
+    return " ".join(parts)[:500]
+
+
+def _fetch_local_pilot_page(target: dict) -> dict | None:
+    try:
+        resp = requests.get(target["url"], headers=WEB_HEADERS, timeout=20)
+        if resp.status_code == 429:
+            return {"quota_exceeded": True}
+        resp.raise_for_status()
+        resp.encoding = resp.apparent_encoding or resp.encoding
+        html = _strip_noise_html(resp.text)
+        title = _extract_html_title(html, target["source_name"])
+        text = strip_html(html)
+        text = re.sub(r"\s+", " ", text).strip()
+        if not text:
+            return None
+        return {
+            "title": title,
+            "text": text[:5000],
+            "phone": _extract_first_phone(text),
+        }
+    except Exception as e:
+        print(f"  ⚠ 파일럿 페이지 수집 실패 ({target['source_name']}): {e}")
+        return None
+
+
+def _build_local_pilot_payload(target: dict, page: dict) -> dict | None:
+    text = page.get("text", "")
+    if not any(k in text for k in LOCAL_PILOT_KEYWORDS):
+        return None
+
+    title = page.get("title") or target["source_name"]
+    name = f"{target['sub_region']} {title}".strip()
+    region = target["region"]
+    sub_region = target["sub_region"]
+    area_detail = target.get("area_detail", "")
+    source_text = " ".join(filter(None, [name, text, area_detail]))
+
+    tags = _augment_service_tags(source_text, [])
+    category = _normalize_category("living", tags, source_text)
+    target_age_group = _infer_target_age_group_from_text(source_text, "unknown")
+    min_age = _infer_min_age(source_text)
+    max_income_level = _infer_income_level(source_text)
+    requires_alone = "독거" in source_text or "홀몸" in source_text
+    requires_ltc_grade = "장기요양" in source_text and ("등급" in source_text or "인정" in source_text)
+    phone = page.get("phone", "")
+    apply_place = phone or target["source_name"]
+    if area_detail:
+        apply_place = f"{target['source_name']} ({area_detail})" + (f" / {phone}" if phone else "")
+
+    raw_content = "\n\n".join([
+        f"[수집 출처]\n{target['source_name']}",
+        f"[지역]\n{region} {sub_region} {area_detail}".strip(),
+        f"[원문 URL]\n{target['url']}",
+        f"[원문 제목]\n{title}",
+        f"[원문 내용]\n{text[:3000]}",
+    ])
+
+    payload = {
+        "name": name[:200],
+        "category": category,
+        "description": text[:300] or name,
+        "target_info": f"{region} {sub_region} {area_detail} 지역 주민 대상 안내".strip(),
+        "benefit_info": text[:800],
+        "apply_place": apply_place,
+        "online_url": target["url"],
+        "difficulty": 2,
+        "is_renewable": True,
+        "min_age": min_age,
+        "max_income_level": max_income_level,
+        "requires_ltc_grade": requires_ltc_grade,
+        "requires_alone": requires_alone,
+        "requires_basic_recipient": max_income_level == 1,
+        "requires_disability": "장애" in source_text and "노인" not in source_text,
+        "requires_veteran": any(k in source_text for k in ["보훈", "국가유공자", "참전유공자"]),
+        "gender": "any",
+        "target_age_group": target_age_group,
+        "region": region,
+        "sub_region": sub_region,
+        "service_tags": tags,
+        "applmet_list": _build_applmet_list_from_apply_place(apply_place),
+        "inq_place": phone,
+        "detail_content": text[:2000],
+        "raw_content": raw_content,
+        "source": "local_site_pilot",
+    }
+    payload["ai_summary"] = _build_local_pilot_summary(
+        payload["name"], payload["target_info"], payload["benefit_info"], payload["apply_place"]
+    )
+    payload["search_tokens"] = _build_search_tokens(payload)
+    return payload
+
+
+def run_collect_pilot_local(supabase) -> int:
+    """충북 괴산군/경기 용인시 수지구 파일럿 웹 수집."""
+    print("\n━━━ PILOT LOCAL: 괴산군/용인시 수지구 웹 수집 ━━━")
+    ok = skip = fail = quota = 0
+
+    for target in LOCAL_PILOT_TARGETS:
+        print(f"  {target['source_name']} 수집 중... ", end="", flush=True)
+        page = _fetch_local_pilot_page(target)
+        if not page:
+            print("⚠ 실패")
+            fail += 1
+            continue
+        if page.get("quota_exceeded"):
+            print("⚠ 429 중단")
+            quota += 1
+            break
+
+        payload = _build_local_pilot_payload(target, page)
+        if not payload:
+            print("↷ 복지 키워드 부족")
+            skip += 1
+            continue
+
+        try:
+            supabase.table("welfare_services").upsert(
+                payload,
+                on_conflict="online_url",
+            ).execute()
+            print("✓")
+            ok += 1
+        except Exception as e:
+            print(f"❌ {e}")
+            fail += 1
+        time.sleep(WEB_SCRAPE_DELAY)
+
+    print(f"\n  파일럿 수집 완료: 저장={ok}, 스킵={skip}, 실패={fail}, 429={quota}")
+    return ok
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -2414,6 +2839,48 @@ def run_fix_search_tokens(supabase, batch_size: int = 500, max_scan: int = 20000
     return updated
 
 
+def run_daily_batch(supabase) -> None:
+    """매일 자동 실행용. 신규 수집부터 AI 분류와 기본 보정까지 한 번에 처리."""
+    run_phase0_national(supabase)
+    run_phase0(supabase)
+    run_phase_providers(supabase)
+    run_phase0_detail(supabase)
+    run_phase1(supabase)
+    run_phase1_web(supabase)
+    run_phase1_lite(supabase)
+    run_phase2(supabase)
+    run_fix_region(supabase)
+    run_fix_cmmcd(supabase)
+    run_fix_search_tokens(supabase)
+
+
+def run_collect_batch(supabase) -> None:
+    """Gemini 호출 없이 신규/누락 데이터를 수집하고 규칙 기반 보정만 수행."""
+    run_phase0_national(supabase)
+    run_phase0(supabase)
+    run_phase_providers(supabase)
+    run_phase0_detail(supabase)
+    run_phase1(supabase)
+    run_phase1_web(supabase)
+    run_phase1_lite(supabase)
+    run_fix_region(supabase)
+    run_fix_cmmcd(supabase)
+    run_fix_search_tokens(supabase)
+
+
+def run_reclassify_batch(supabase) -> None:
+    """상세 누락을 조금 보강한 뒤 오래된 AI 분류를 순환 재검토."""
+    run_phase1_lite(supabase, limit=300)
+    run_phase2r(supabase)
+
+
+def run_repair_batch(supabase, force_search_tokens: bool = False) -> None:
+    """데이터 수집 없이 보정 작업만 수행."""
+    run_fix_region(supabase)
+    run_fix_cmmcd(supabase)
+    run_fix_search_tokens(supabase, force=force_search_tokens)
+
+
 def main(phase=None):
     validate_env(phase)
     supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -2422,7 +2889,21 @@ def main(phase=None):
     print("  CareWay 복지서비스 배치 파이프라인")
     print("=" * 60)
 
-    if phase == "0":
+    if phase in (None, "daily", "both"):
+        run_daily_batch(supabase)
+    elif phase == "collect":
+        run_collect_batch(supabase)
+    elif phase == "reclassify":
+        run_reclassify_batch(supabase)
+    elif phase == "repair":
+        run_repair_batch(supabase)
+    elif phase == "repair_force_search":
+        run_repair_batch(supabase, force_search_tokens=True)
+    elif phase == "collect_pilot_local":
+        run_collect_pilot_local(supabase)
+    elif phase == "0_national":
+        run_phase0_national(supabase)
+    elif phase == "0":
         run_phase0(supabase)
     elif phase == "providers":
         run_phase_providers(supabase)
@@ -2437,8 +2918,7 @@ def main(phase=None):
     elif phase == "2":
         run_phase2(supabase)
     elif phase == "2r":
-        run_phase1_lite(supabase, limit=300)
-        run_phase2r(supabase)
+        run_reclassify_batch(supabase)
     elif phase == "fix_region":
         run_fix_region(supabase)
     elif phase == "fix_cmmcd":          # ← 추가
@@ -2447,20 +2927,11 @@ def main(phase=None):
         run_fix_search_tokens(supabase)
     elif phase == "fix_search_tokens_force":
         run_fix_search_tokens(supabase, force=True)
-    elif phase == "fix_all":            # ← 추가 (region + cmmcd 한번에)
-        run_fix_region(supabase)
-        run_fix_cmmcd(supabase)
-        run_fix_search_tokens(supabase)
+    elif phase == "fix_all":
+        run_repair_batch(supabase)
     else:
-        # both → 전체 실행
-        run_phase0(supabase)
-        run_phase_providers(supabase)
-        run_phase0_detail(supabase)
-        run_phase1(supabase)
-        run_phase1_web(supabase, limit=300)
-        run_phase1_lite(supabase, limit=300)
-        run_phase2(supabase)
-        run_fix_region(supabase)
+        print(f"❌ 알 수 없는 phase: {phase}")
+        sys.exit(1)
 
     print("\n🎉 배치 완료!")
 

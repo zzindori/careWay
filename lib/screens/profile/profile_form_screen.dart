@@ -376,7 +376,7 @@ class _ProfileFormScreenState extends State<ProfileFormScreen> {
       ),
       const SizedBox(height: 8),
       DropdownButtonFormField<String>(
-        value: _region,
+        initialValue: _region,
         decoration: const InputDecoration(hintText: '시/도 선택'),
         items: regions.map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
         onChanged: (v) => setState(() {

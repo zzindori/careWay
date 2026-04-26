@@ -114,7 +114,7 @@ class EligibilityCard extends StatelessWidget {
             color: AppTheme.primary.withValues(alpha: 0.07),
             borderRadius: BorderRadius.circular(8)),
         child: Row(children: [
-          Icon(Icons.elderly, size: 16, color: AppTheme.primary),
+          const Icon(Icons.elderly, size: 16, color: AppTheme.primary),
           const SizedBox(width: 8),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('장기요양 ${ltc.gradeName}',

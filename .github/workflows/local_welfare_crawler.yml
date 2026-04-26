@@ -1,6 +1,12 @@
 name: CareWay 지역 복지 수집 로봇
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'batch/local_welfare_*.py'
+      - '.github/workflows/local_welfare_crawler.yml'
   workflow_dispatch:
     inputs:
       target:

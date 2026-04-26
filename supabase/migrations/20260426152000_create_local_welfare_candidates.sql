@@ -25,3 +25,5 @@ create index if not exists idx_local_welfare_candidates_region
 
 comment on table public.local_welfare_candidates is
   'Staging table for local welfare crawler pages before promotion to welfare_services.';
+
+alter table public.local_welfare_candidates enable row level security;

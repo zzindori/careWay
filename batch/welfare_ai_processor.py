@@ -854,25 +854,13 @@ LOCAL_PILOT_TARGETS = [
         "region": "충북",
         "sub_region": "괴산군",
         "area_detail": "",
-        "source_name": "괴산군 복지",
-        "source_type": "district_welfare",
-        "url": "https://www.goesan.go.kr/welfare/index.do",
-    },
-    {
-        "region": "충북",
-        "sub_region": "괴산군",
-        "area_detail": "",
         "source_name": "괴산군 노인일자리",
         "source_type": "district_welfare",
         "url": "https://www.goesan.go.kr/welfare/contents.do?key=312",
-    },
-    {
-        "region": "경기",
-        "sub_region": "용인시",
-        "area_detail": "수지구",
-        "source_name": "수지구청",
-        "source_type": "district_office",
-        "url": "https://www.sujigu.go.kr/index.asp",
+        "focus_keywords": ["노인일자리확대지원", "참여대상", "지원근거"],
+        "category": "finance",
+        "target_age_group": "elderly",
+        "min_age": 65,
     },
     {
         "region": "경기",
@@ -881,6 +869,8 @@ LOCAL_PILOT_TARGETS = [
         "source_name": "수지구 보건소 공지",
         "source_type": "public_health_center",
         "url": "https://www.yongin.go.kr/user/bbs/BD_selectBbs.do?q_bbsCode=1019&q_bbscttSn=20240503134345266&q_category=main&q_clCode=3",
+        "focus_keywords": ["보건소", "방문건강", "치매", "어르신", "노인"],
+        "category": "medical",
     },
 ]
 
@@ -919,6 +909,28 @@ def _extract_first_phone(text: str) -> str:
     return m.group(0) if m else ""
 
 
+def _focus_local_pilot_text(target: dict, text: str) -> str:
+    text = re.sub(r"\s+", " ", text or "").strip()
+    if not text:
+        return ""
+
+    keywords = [k for k in target.get("focus_keywords", []) if k]
+    positions = [text.find(k) for k in keywords if text.find(k) >= 0]
+    if not positions:
+        return text[:2500]
+
+    start = max(0, min(positions) - 120)
+    focused = text[start:start + 2500].strip()
+
+    # 지자체 페이지 공통 메뉴가 앞에 길게 붙는 경우 실제 본문 시작점으로 재정렬한다.
+    for marker in keywords + ["지원근거", "참여대상", "사업내용", "신청", "문의"]:
+        idx = focused.find(marker)
+        if idx > 0:
+            focused = focused[idx:].strip()
+            break
+    return focused
+
+
 def _infer_min_age(text: str) -> int | None:
     m = re.search(r"(?:만\s*)?(\d{2})\s*세\s*이상", text or "")
     if not m:
@@ -952,8 +964,8 @@ def _build_local_pilot_summary(name: str, target_info: str, benefit_info: str, a
 def _parse_local_pilot_html(target: dict, html: str) -> dict | None:
     html = _strip_noise_html(html)
     title = _extract_html_title(html, target["source_name"])
-    text = strip_html(html)
-    text = re.sub(r"\s+", " ", text).strip()
+    full_text = strip_html(html)
+    text = _focus_local_pilot_text(target, full_text)
     if not text:
         return None
     return {
@@ -1005,16 +1017,16 @@ def _build_local_pilot_payload(target: dict, page: dict) -> dict | None:
         return None
 
     title = page.get("title") or target["source_name"]
-    name = f"{target['sub_region']} {title}".strip()
+    name = f"{target['sub_region']} {target['source_name']}".strip()
     region = target["region"]
     sub_region = target["sub_region"]
     area_detail = target.get("area_detail", "")
     source_text = " ".join(filter(None, [name, text, area_detail]))
 
     tags = _augment_service_tags(source_text, [])
-    category = _normalize_category("living", tags, source_text)
-    target_age_group = _infer_target_age_group_from_text(source_text, "unknown")
-    min_age = _infer_min_age(source_text)
+    category = target.get("category") or _normalize_category("living", tags, source_text)
+    target_age_group = target.get("target_age_group") or _infer_target_age_group_from_text(source_text, "unknown")
+    min_age = target.get("min_age") or _infer_min_age(source_text)
     max_income_level = _infer_income_level(source_text)
     requires_alone = "독거" in source_text or "홀몸" in source_text
     requires_ltc_grade = "장기요양" in source_text and ("등급" in source_text or "인정" in source_text)
@@ -1047,7 +1059,7 @@ def _build_local_pilot_payload(target: dict, page: dict) -> dict | None:
         "requires_alone": requires_alone,
         "requires_basic_recipient": max_income_level == 1,
         "requires_disability": "장애" in source_text and "노인" not in source_text,
-        "requires_veteran": any(k in source_text for k in ["보훈", "국가유공자", "참전유공자"]),
+        "requires_veteran": any(k in source_text for k in ["국가유공자", "참전유공자"]),
         "gender": "any",
         "target_age_group": target_age_group,
         "region": region,
@@ -1070,6 +1082,12 @@ def run_collect_pilot_local(supabase) -> int:
     """충북 괴산군/경기 용인시 수지구 파일럿 웹 수집."""
     print("\n━━━ PILOT LOCAL: 괴산군/용인시 수지구 웹 수집 ━━━")
     ok = skip = fail = quota = 0
+
+    try:
+        supabase.table("welfare_services").delete().eq("source", "local_site_pilot").execute()
+        print("  기존 파일럿 데이터 정리 완료")
+    except Exception as e:
+        print(f"  ⚠ 기존 파일럿 데이터 정리 실패: {e}")
 
     for target in LOCAL_PILOT_TARGETS:
         print(f"  {target['source_name']} 수집 중... ", end="", flush=True)

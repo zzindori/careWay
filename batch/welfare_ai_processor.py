@@ -57,6 +57,12 @@ from urllib.parse import parse_qs, urlparse
 from google import genai as google_genai
 from supabase import create_client
 
+from local_welfare_crawler import (
+    LOCAL_PILOT_KEYWORDS,
+    PILOT_LOCAL_TARGETS,
+    fetch_local_pilot_page,
+)
+
 # ── 설정 ──────────────────────────────────────────────────────────────────────
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://dnnidnqwkjmbssxixpjg.supabase.co")
@@ -849,88 +855,6 @@ def run_phase_providers(supabase) -> int:
 # PILOT LOCAL: 지자체/보건소/복지관 웹페이지 수집 → 앱용 구조화
 # ════════════════════════════════════════════════════════════════════════════════
 
-LOCAL_PILOT_TARGETS = [
-    {
-        "region": "충북",
-        "sub_region": "괴산군",
-        "area_detail": "",
-        "source_name": "괴산군 노인일자리",
-        "source_type": "district_welfare",
-        "url": "https://www.goesan.go.kr/welfare/contents.do?key=312",
-        "focus_keywords": ["노인일자리확대지원", "참여대상", "지원근거"],
-        "category": "finance",
-        "target_age_group": "elderly",
-        "min_age": 65,
-    },
-    {
-        "region": "경기",
-        "sub_region": "용인시",
-        "area_detail": "수지구",
-        "source_name": "수지구 보건소 공지",
-        "source_type": "public_health_center",
-        "url": "https://www.yongin.go.kr/user/bbs/BD_selectBbs.do?q_bbsCode=1019&q_bbscttSn=20240503134345266&q_category=main&q_clCode=3",
-        "focus_keywords": ["보건소", "방문건강", "치매", "어르신", "노인"],
-        "category": "medical",
-    },
-]
-
-LOCAL_PILOT_KEYWORDS = [
-    "노인", "어르신", "고령", "65세", "60세", "기초연금", "장기요양",
-    "치매", "방문건강", "방문간호", "돌봄", "독거", "무료급식", "도시락",
-    "보건소", "복지관", "행정복지센터", "주민센터", "수지구", "괴산군",
-]
-
-
-def _strip_noise_html(html: str) -> str:
-    html = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", html)
-    html = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", html)
-    html = re.sub(r"(?is)<noscript[^>]*>.*?</noscript>", " ", html)
-    return html
-
-
-def _extract_html_title(html: str, fallback: str) -> str:
-    for pattern in [
-        r"(?is)<h1[^>]*>(.*?)</h1>",
-        r"(?is)<h2[^>]*>(.*?)</h2>",
-        r"(?is)<title[^>]*>(.*?)</title>",
-    ]:
-        m = re.search(pattern, html)
-        if not m:
-            continue
-        title = strip_html(m.group(1))
-        title = re.sub(r"\s+", " ", title).strip(" -|")
-        if title:
-            return title[:80]
-    return fallback
-
-
-def _extract_first_phone(text: str) -> str:
-    m = re.search(r"(?:0\d{1,2})-\d{3,4}-\d{4}", text or "")
-    return m.group(0) if m else ""
-
-
-def _focus_local_pilot_text(target: dict, text: str) -> str:
-    text = re.sub(r"\s+", " ", text or "").strip()
-    if not text:
-        return ""
-
-    keywords = [k for k in target.get("focus_keywords", []) if k]
-    positions = [text.find(k) for k in keywords if text.find(k) >= 0]
-    if not positions:
-        return text[:2500]
-
-    start = max(0, min(positions) - 120)
-    focused = text[start:start + 2500].strip()
-
-    # 지자체 페이지 공통 메뉴가 앞에 길게 붙는 경우 실제 본문 시작점으로 재정렬한다.
-    for marker in keywords + ["지원근거", "참여대상", "사업내용", "신청", "문의"]:
-        idx = focused.find(marker)
-        if idx > 0:
-            focused = focused[idx:].strip()
-            break
-    return focused
-
-
 def _infer_min_age(text: str) -> int | None:
     m = re.search(r"(?:만\s*)?(\d{2})\s*세\s*이상", text or "")
     if not m:
@@ -959,56 +883,6 @@ def _build_local_pilot_summary(name: str, target_info: str, benefit_info: str, a
     if apply_place:
         parts.append(f"문의나 신청은 {apply_place[:100]}에서 확인하세요.")
     return " ".join(parts)[:500]
-
-
-def _parse_local_pilot_html(target: dict, html: str) -> dict | None:
-    html = _strip_noise_html(html)
-    title = _extract_html_title(html, target["source_name"])
-    full_text = strip_html(html)
-    text = _focus_local_pilot_text(target, full_text)
-    if not text:
-        return None
-    return {
-        "title": title,
-        "text": text[:5000],
-        "phone": _extract_first_phone(text),
-    }
-
-
-def _fetch_local_pilot_page_with_browser(target: dict) -> dict | None:
-    try:
-        from playwright.sync_api import sync_playwright
-
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-dev-shm-usage"],
-            )
-            context = browser.new_context(
-                user_agent=WEB_HEADERS.get("User-Agent"),
-                ignore_https_errors=True,
-            )
-            page = context.new_page()
-            page.goto(target["url"], wait_until="domcontentloaded", timeout=30000)
-            html = page.content()
-            browser.close()
-        return _parse_local_pilot_html(target, html)
-    except Exception as e:
-        print(f"  ⚠ 브라우저 fallback 실패 ({target['source_name']}): {e}")
-        return None
-
-
-def _fetch_local_pilot_page(target: dict) -> dict | None:
-    try:
-        resp = requests.get(target["url"], headers=WEB_HEADERS, timeout=20)
-        if resp.status_code == 429:
-            return {"quota_exceeded": True}
-        resp.raise_for_status()
-        resp.encoding = resp.apparent_encoding or resp.encoding
-        return _parse_local_pilot_html(target, resp.text)
-    except Exception as e:
-        print(f"  ⚠ 파일럿 페이지 수집 실패 ({target['source_name']}): {e}")
-        return _fetch_local_pilot_page_with_browser(target)
 
 
 def _build_local_pilot_payload(target: dict, page: dict) -> dict | None:
@@ -1089,9 +963,9 @@ def run_collect_pilot_local(supabase) -> int:
     except Exception as e:
         print(f"  ⚠ 기존 파일럿 데이터 정리 실패: {e}")
 
-    for target in LOCAL_PILOT_TARGETS:
+    for target in PILOT_LOCAL_TARGETS:
         print(f"  {target['source_name']} 수집 중... ", end="", flush=True)
-        page = _fetch_local_pilot_page(target)
+        page = fetch_local_pilot_page(target)
         if not page:
             print("⚠ 실패")
             fail += 1

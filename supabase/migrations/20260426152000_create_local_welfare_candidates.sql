@@ -40,4 +40,14 @@ create policy local_welfare_candidates_service_role_all
   using (true)
   with check (true);
 
+drop policy if exists local_welfare_candidates_authenticated_all
+  on public.local_welfare_candidates;
+
+create policy local_welfare_candidates_authenticated_all
+  on public.local_welfare_candidates
+  for all
+  to authenticated
+  using (true)
+  with check (true);
+
 notify pgrst, 'reload schema';

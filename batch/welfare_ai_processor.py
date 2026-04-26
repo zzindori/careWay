@@ -949,6 +949,43 @@ def _build_local_pilot_summary(name: str, target_info: str, benefit_info: str, a
     return " ".join(parts)[:500]
 
 
+def _parse_local_pilot_html(target: dict, html: str) -> dict | None:
+    html = _strip_noise_html(html)
+    title = _extract_html_title(html, target["source_name"])
+    text = strip_html(html)
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return None
+    return {
+        "title": title,
+        "text": text[:5000],
+        "phone": _extract_first_phone(text),
+    }
+
+
+def _fetch_local_pilot_page_with_browser(target: dict) -> dict | None:
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            context = browser.new_context(
+                user_agent=WEB_HEADERS.get("User-Agent"),
+                ignore_https_errors=True,
+            )
+            page = context.new_page()
+            page.goto(target["url"], wait_until="domcontentloaded", timeout=30000)
+            html = page.content()
+            browser.close()
+        return _parse_local_pilot_html(target, html)
+    except Exception as e:
+        print(f"  ⚠ 브라우저 fallback 실패 ({target['source_name']}): {e}")
+        return None
+
+
 def _fetch_local_pilot_page(target: dict) -> dict | None:
     try:
         resp = requests.get(target["url"], headers=WEB_HEADERS, timeout=20)
@@ -956,20 +993,10 @@ def _fetch_local_pilot_page(target: dict) -> dict | None:
             return {"quota_exceeded": True}
         resp.raise_for_status()
         resp.encoding = resp.apparent_encoding or resp.encoding
-        html = _strip_noise_html(resp.text)
-        title = _extract_html_title(html, target["source_name"])
-        text = strip_html(html)
-        text = re.sub(r"\s+", " ", text).strip()
-        if not text:
-            return None
-        return {
-            "title": title,
-            "text": text[:5000],
-            "phone": _extract_first_phone(text),
-        }
+        return _parse_local_pilot_html(target, resp.text)
     except Exception as e:
         print(f"  ⚠ 파일럿 페이지 수집 실패 ({target['source_name']}): {e}")
-        return None
+        return _fetch_local_pilot_page_with_browser(target)
 
 
 def _build_local_pilot_payload(target: dict, page: dict) -> dict | None:

@@ -1,8 +1,9 @@
 {
-  "started_at": "2026-04-26T16:00:33.201333+00:00",
-  "finished_at": "2026-04-26T16:01:43.270303+00:00",
+  "started_at": "2026-04-26T16:04:49.636833+00:00",
+  "finished_at": "2026-04-26T16:05:51.485320+00:00",
   "target": "",
   "reset_existing": false,
+  "supabase_key_role": "anon",
   "stats": {
     "candidates": 0,
     "promoted": 0,

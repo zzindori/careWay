@@ -13,6 +13,7 @@ import re
 from typing import Any
 
 import requests
+from bs4 import BeautifulSoup, Comment
 
 
 WEB_HEADERS = {
@@ -43,7 +44,7 @@ PILOT_LOCAL_TARGETS = [
         "source_name": "수지구 보건소 공지",
         "source_type": "public_health_center",
         "url": "https://www.yongin.go.kr/user/bbs/BD_selectBbs.do?q_bbsCode=1019&q_bbscttSn=20240503134345266&q_category=main&q_clCode=3",
-        "focus_keywords": ["보건소", "방문건강", "치매", "어르신", "노인"],
+        "focus_keywords": ["방문건강", "치매", "어르신", "노인"],
         "category": "medical",
     },
 ]
@@ -74,6 +75,45 @@ def _strip_noise_html(html: str) -> str:
     return html
 
 
+NOISE_ATTR_RE = re.compile(
+    r"(?:^|[_-])(gnb|lnb|nav|menu|sitemap|footer|header|quick|search|login|family|breadcrumb|location|aside|side|sns|share|popup|banner|weather|top|bottom)(?:$|[_-])",
+    re.IGNORECASE,
+)
+
+CONTENT_ATTR_RE = re.compile(
+    r"(content|contents|container|article|board|bbs|view|detail|body|main|substance|program)",
+    re.IGNORECASE,
+)
+
+DETAIL_MARKERS = [
+    "지원근거",
+    "참여대상",
+    "사업내용",
+    "지원내용",
+    "신청방법",
+    "문의",
+    "담당부서",
+    "상세내용",
+]
+
+NOISE_WORDS = [
+    "사이트맵",
+    "전체메뉴",
+    "로그인",
+    "회원가입",
+    "화면크기",
+    "통합검색",
+    "패밀리사이트",
+    "연관사이트",
+    "본문 바로가기",
+    "대메뉴 바로가기",
+    "인기검색어",
+    "개인정보",
+    "정보공개",
+    "민원안내",
+]
+
+
 def _extract_html_title(html: str, fallback: str) -> str:
     for pattern in [
         r"(?is)<h1[^>]*>(.*?)</h1>",
@@ -95,13 +135,116 @@ def _extract_first_phone(text: str) -> str:
     return match.group(0) if match else ""
 
 
+def _attr_text(node) -> str:
+    if not getattr(node, "attrs", None):
+        return ""
+    values: list[str] = []
+    for key in ("id", "class", "role", "name"):
+        value = node.get(key)
+        if isinstance(value, list):
+            values.extend(str(item) for item in value)
+        elif value:
+            values.append(str(value))
+    return " ".join(values)
+
+
+def _normalize_text(text: str) -> str:
+    text = html_lib.unescape(text or "")
+    text = text.replace("\xa0", " ").replace("\u200b", "")
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _node_text(node) -> str:
+    return _normalize_text(node.get_text(" ", strip=True))
+
+
+def _prepare_soup(html: str) -> BeautifulSoup:
+    soup = BeautifulSoup(html, "html.parser")
+    for comment in soup.find_all(string=lambda value: isinstance(value, Comment)):
+        comment.extract()
+    for tag in soup(["script", "style", "noscript", "svg", "iframe", "header", "footer", "nav", "aside", "form", "select", "button"]):
+        tag.decompose()
+    for tag in list(soup.find_all(True)):
+        attrs = _attr_text(tag)
+        if attrs and NOISE_ATTR_RE.search(attrs) and not CONTENT_ATTR_RE.search(attrs):
+            tag.decompose()
+    return soup
+
+
+def _candidate_nodes(soup: BeautifulSoup) -> list:
+    selectors = [
+        "main",
+        "article",
+        "[role='main']",
+        "#content",
+        "#contents",
+        "#container",
+        ".content",
+        ".contents",
+        ".substance",
+        ".board_view",
+        ".bbs_view",
+        ".view",
+        ".view_cont",
+        ".viewContent",
+        ".detail",
+        ".article",
+    ]
+    candidates = []
+    seen = set()
+    for selector in selectors:
+        for node in soup.select(selector):
+            identity = id(node)
+            if identity not in seen:
+                seen.add(identity)
+                candidates.append(node)
+    for node in soup.find_all(["section", "div"]):
+        attrs = _attr_text(node)
+        if CONTENT_ATTR_RE.search(attrs or ""):
+            identity = id(node)
+            if identity not in seen:
+                seen.add(identity)
+                candidates.append(node)
+    if soup.body:
+        candidates.append(soup.body)
+    return candidates
+
+
+def _score_candidate(text: str, target: dict[str, Any]) -> int:
+    if len(text) < 80:
+        return -1000
+    keywords = [keyword for keyword in target.get("focus_keywords", []) if keyword]
+    keyword_score = sum(text.count(keyword) for keyword in keywords) * 30
+    marker_score = sum(text.count(marker) for marker in DETAIL_MARKERS) * 60
+    welfare_score = sum(text.count(keyword) for keyword in LOCAL_PILOT_KEYWORDS) * 8
+    noise_score = sum(text.count(word) for word in NOISE_WORDS) * 35
+    length_score = min(len(text), 4000) // 120
+    return keyword_score + marker_score + welfare_score + length_score - noise_score
+
+
+def _extract_main_text(target: dict[str, Any], html: str) -> str:
+    soup = _prepare_soup(html)
+    scored: list[tuple[int, int, str]] = []
+    for node in _candidate_nodes(soup):
+        text = _node_text(node)
+        if not text:
+            continue
+        scored.append((_score_candidate(text, target), len(text), text))
+    if not scored:
+        return strip_html(html)
+    scored.sort(key=lambda item: (item[0], -abs(item[1] - 1800)), reverse=True)
+    return scored[0][2]
+
+
 def _focus_local_text(target: dict[str, Any], text: str) -> str:
     text = re.sub(r"\s+", " ", text or "").strip()
     if not text:
         return ""
 
     keywords = [keyword for keyword in target.get("focus_keywords", []) if keyword]
-    positions = [text.find(keyword) for keyword in keywords if text.find(keyword) >= 0]
+    priority_markers = DETAIL_MARKERS + keywords
+    positions = [text.find(keyword) for keyword in priority_markers if text.find(keyword) >= 0]
     if not positions:
         return text[:2500]
 
@@ -119,7 +262,7 @@ def _focus_local_text(target: dict[str, Any], text: str) -> str:
 def _parse_local_html(target: dict[str, Any], html: str) -> dict[str, Any] | None:
     html = _strip_noise_html(html)
     title = _extract_html_title(html, target["source_name"])
-    full_text = strip_html(html)
+    full_text = _extract_main_text(target, html)
     text = _focus_local_text(target, full_text)
     if not text:
         return None

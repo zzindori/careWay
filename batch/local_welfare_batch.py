@@ -186,9 +186,32 @@ def _build_search_tokens(payload: dict) -> list[str]:
     return tokens[:300]
 
 
+def _is_service_like(text: str) -> bool:
+    if any(keyword in text for keyword in ["범죄경력", "일제 점검", "만족도 조사", "현재 페이지에서 제공하는 정보"]):
+        return False
+    service_markers = [
+        "지원대상",
+        "참여대상",
+        "사업내용",
+        "지원내용",
+        "신청방법",
+        "수행기관",
+        "활동비",
+        "기초연금",
+        "노인일자리",
+        "방문건강",
+        "치매",
+        "무료급식",
+        "돌봄",
+    ]
+    return any(marker in text for marker in service_markers)
+
+
 def _build_payload(target: dict, page: dict) -> dict | None:
     text = page.get("text", "")
     if not any(keyword in text for keyword in LOCAL_PILOT_KEYWORDS):
+        return None
+    if not _is_service_like(text):
         return None
 
     title = page.get("title") or target["source_name"]

@@ -57,6 +57,82 @@ SERVICE_TAG_SEARCH_ALIASES = {
     "caregiver_support": ["가족돌봄", "간병가족", "부양가족", "돌봄휴가"],
 }
 
+SEARCH_TOKEN_STOPWORDS = {
+    "안내",
+    "안내표입니다",
+    "나뉘어",
+    "설명합니다",
+    "유형",
+    "사업",
+    "내용",
+    "운영",
+    "기간",
+    "이상",
+    "이내",
+    "일부를",
+    "위해",
+    "정함에",
+    "따름",
+    "비고",
+    "비고로",
+    "수집",
+    "출처",
+    "원문",
+    "url",
+    "https",
+    "www",
+    "go",
+    "kr",
+    "contents",
+    "do",
+    "key",
+    "제목",
+    "관련",
+    "지역",
+    "주민",
+    "대상",
+    "확인하세요",
+    "finance",
+    "medical",
+    "living",
+    "care",
+    "housing",
+    "mobility",
+}
+
+SEARCH_TOKEN_ALLOW_PATTERNS = [
+    re.compile(r"^[가-힣]{2,12}(?:시|군|구)$"),
+    re.compile(r"^\d{2,4}-\d{3,4}-\d{4}$"),
+    re.compile(r"^\d+(?:\.\d+)?만원$"),
+    re.compile(r"^\d+(?:~\d+)?개월$"),
+]
+
+SEARCH_TOKEN_KEYWORDS = {
+    "노인일자리",
+    "노인일자리확대지원",
+    "노인공익활동사업",
+    "노인역량활용사업",
+    "공동체사업단",
+    "취업지원",
+    "취업알선형",
+    "수행기관",
+    "대한노인회",
+    "노인복지관",
+    "기초연금",
+    "활동비",
+    "지원금",
+    "수당",
+    "급여",
+    "바우처",
+    "돌봄",
+    "방문건강",
+    "치매",
+    "무료급식",
+    "도시락",
+    "의료",
+    "검진",
+}
+
 
 def _split_search_words(text: str) -> list[str]:
     cleaned = strip_html(text or "").lower()
@@ -157,10 +233,14 @@ def _build_applmet_list(apply_place: str) -> list[dict]:
 
 def _build_search_tokens(payload: dict) -> list[str]:
     bag = []
-    for key in ["name", "description", "target_info", "benefit_info", "apply_place", "detail_content", "raw_content", "region", "sub_region", "category"]:
+    for key in ["name", "region", "sub_region", "apply_place"]:
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             bag.extend(_split_search_words(value))
+    for key in ["description", "benefit_info", "detail_content"]:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            bag.extend(_extract_domain_tokens(value))
     for tag in payload.get("service_tags") or []:
         bag.extend(_split_search_words(str(tag)))
         bag.extend(SERVICE_TAG_SEARCH_ALIASES.get(tag, []))
@@ -168,11 +248,45 @@ def _build_search_tokens(payload: dict) -> list[str]:
     seen = set()
     tokens = []
     for token in bag:
-        if len(token) < 2 or token in seen:
+        if not _is_good_search_token(token) or token in seen:
             continue
         seen.add(token)
         tokens.append(token)
-    return tokens[:300]
+    return tokens[:80]
+
+
+def _extract_domain_tokens(text: str) -> list[str]:
+    tokens = []
+    lowered = text.lower()
+    for keyword in SEARCH_TOKEN_KEYWORDS:
+        if keyword.lower() in lowered:
+            tokens.append(keyword)
+    tokens.extend(re.findall(r"\d+(?:\.\d+)?만원", text))
+    tokens.extend(re.findall(r"\d+(?:~\d+)?개월", text))
+    tokens.extend(re.findall(r"\d{2,4}-\d{3,4}-\d{4}", text))
+    return tokens
+
+
+def _is_good_search_token(token: str) -> bool:
+    if not token or len(token) < 2:
+        return False
+    if token in SEARCH_TOKEN_STOPWORDS:
+        return False
+    if token.isdigit():
+        return False
+    if re.fullmatch(r"[a-z0-9]+", token):
+        return False
+    if any(pattern.match(token) for pattern in SEARCH_TOKEN_ALLOW_PATTERNS):
+        return True
+    if token in SEARCH_TOKEN_KEYWORDS:
+        return True
+    if token in ALLOWED_SERVICE_TAGS:
+        return True
+    if any(token in aliases for aliases in SERVICE_TAG_SEARCH_ALIASES.values()):
+        return True
+    if token.endswith(("지원", "사업", "수당", "급여", "연금", "복지관", "지회", "센터")):
+        return True
+    return False
 
 
 def _is_service_like(text: str) -> bool:

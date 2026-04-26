@@ -422,6 +422,38 @@ def _write_report(report: dict) -> None:
     print(f"  리포트 저장: {path}")
 
 
+def _print_report_summary(report: dict) -> None:
+    stats = report.get("stats", {})
+    print("\n━━━ LOCAL CRAWLER REPORT ━━━")
+    print(
+        "  "
+        f"저장={stats.get('saved', 0)}, "
+        f"스킵={stats.get('skipped', 0)}, "
+        f"실패={stats.get('failed', 0)}, "
+        f"429={stats.get('quota', 0)}, "
+        f"품질경고={stats.get('warnings', 0)}"
+    )
+
+    saved = report.get("saved") or []
+    if saved:
+        print("  저장 샘플:")
+        for item in saved[:10]:
+            warnings = ",".join(item.get("warnings") or []) or "-"
+            print(f"    - {item.get('name')} | {item.get('category')} | 경고={warnings}")
+
+    skipped = report.get("skipped") or []
+    if skipped:
+        print("  스킵 샘플:")
+        for item in skipped[:5]:
+            print(f"    - {item.get('source_name')} | {item.get('reason')}")
+
+    failed = report.get("failed") or []
+    if failed:
+        print("  실패 샘플:")
+        for item in failed[:5]:
+            print(f"    - {item.get('source_name')} | {item.get('reason')}")
+
+
 def _build_payload(target: dict, page: dict) -> dict | None:
     text = page.get("text", "")
     if not any(keyword in text for keyword in LOCAL_PILOT_KEYWORDS):
@@ -582,6 +614,7 @@ def run() -> int:
         "warnings": sum(len(item["warnings"]) for item in report["saved"]),
     }
     _write_report(report)
+    _print_report_summary(report)
     return 0 if fail == 0 else 1
 
 

@@ -1,15 +1,15 @@
 {
-  "started_at": "2026-04-27T12:21:47.632263+00:00",
-  "finished_at": "2026-04-27T12:24:38.050033+00:00",
+  "started_at": "2026-04-27T12:51:15.161962+00:00",
+  "finished_at": "2026-04-27T12:53:55.957089+00:00",
   "target": "",
   "reset_existing": false,
   "supabase_key_role": "service_role",
   "stats": {
-    "candidates": 11,
-    "promoted": 11,
+    "candidates": 10,
+    "promoted": 10,
     "held": 0,
     "skipped": 4,
-    "failed": 2,
+    "failed": 0,
     "quota": 0,
     "warnings": 0
   },
@@ -30,20 +30,20 @@
       "search_tokens": [
         "괴산군",
         "노인일자리",
+        "노인일자리확대지원",
         "노인공익활동사업",
+        "활동비",
         "공동체사업단",
         "노인역량활용사업",
-        "활동비",
-        "노인일자리확대지원",
         "29만원",
         "63.4만원",
         "10~12개월",
         "10개월",
+        "노인복지관",
+        "수행기관",
+        "대한노인회",
         "취업지원",
         "취업알선형",
-        "수행기관",
-        "노인복지관",
-        "대한노인회",
         "267만원",
         "043-832-2444",
         "043-834-3411"
@@ -66,41 +66,21 @@
       "search_tokens": [
         "용인시",
         "노인일자리",
-        "수행기관",
         "노인복지관",
+        "수행기관",
         "대한노인회",
-        "취업알선형",
-        "의료",
         "급여",
         "기초연금",
+        "의료",
+        "취업알선형",
         "10~11개월",
-        "장애인",
         "돌봄",
         "취약계층",
+        "장애인",
         "070-4657-2271",
         "031-282-2348",
         "031-266-0892",
         "031-326-0243"
-      ],
-      "warnings": []
-    },
-    {
-      "name": "용인시 노인맞춤돌봄 서비스",
-      "category": "care",
-      "region": "경기",
-      "sub_region": "용인시",
-      "online_url": "https://www.yongin.go.kr/home/www/www18/www18_02/www18_02_04/www18_02_04_01.jsp",
-      "apply_place": "관할 읍면동 행정복지센터 / 031-6193-2466",
-      "inq_place": "031-6193-2466",
-      "target_age_group": "elderly",
-      "service_tags": [],
-      "requires_ltc_grade": false,
-      "requires_alone": false,
-      "requires_basic_recipient": false,
-      "search_tokens": [
-        "용인시",
-        "행정복지센터",
-        "031-6193-2466"
       ],
       "warnings": []
     },
@@ -137,9 +117,9 @@
       "target_age_group": "elderly",
       "service_tags": [
         "hospital_companion",
-        "medical",
+        "financial_support",
         "mobility",
-        "financial_support"
+        "medical"
       ],
       "requires_ltc_grade": false,
       "requires_alone": false,
@@ -149,26 +129,26 @@
         "노인일자리",
         "의료",
         "장애인",
-        "수당",
         "돌봄",
+        "수당",
         "02-2091-0000",
         "병원동행",
         "동행",
         "의료동행",
         "병원",
-        "진료",
-        "치료",
-        "검진",
-        "투약",
+        "지원금",
+        "현금지원",
+        "바우처",
+        "급여",
         "이동",
         "이동지원",
         "교통지원",
         "차량지원",
         "택시",
-        "지원금",
-        "현금지원",
-        "바우처",
-        "급여"
+        "진료",
+        "치료",
+        "검진",
+        "투약"
       ],
       "warnings": []
     },
@@ -183,9 +163,9 @@
       "target_age_group": "elderly",
       "service_tags": [
         "hospital_companion",
-        "medical",
+        "financial_support",
         "mobility",
-        "financial_support"
+        "medical"
       ],
       "requires_ltc_grade": false,
       "requires_alone": false,
@@ -195,26 +175,26 @@
         "노인일자리",
         "의료",
         "장애인",
-        "수당",
         "돌봄",
+        "수당",
         "02-2091-5594",
         "병원동행",
         "동행",
         "의료동행",
         "병원",
-        "진료",
-        "치료",
-        "검진",
-        "투약",
+        "지원금",
+        "현금지원",
+        "바우처",
+        "급여",
         "이동",
         "이동지원",
         "교통지원",
         "차량지원",
         "택시",
-        "지원금",
-        "현금지원",
-        "바우처",
-        "급여"
+        "진료",
+        "치료",
+        "검진",
+        "투약"
       ],
       "warnings": []
     },
@@ -229,9 +209,9 @@
       "target_age_group": "elderly",
       "service_tags": [
         "hospital_companion",
-        "medical",
+        "financial_support",
         "mobility",
-        "financial_support"
+        "medical"
       ],
       "requires_ltc_grade": false,
       "requires_alone": false,
@@ -241,26 +221,26 @@
         "노인일자리",
         "의료",
         "장애인",
-        "수당",
         "돌봄",
+        "수당",
         "02-2091-3055",
         "병원동행",
         "동행",
         "의료동행",
         "병원",
-        "진료",
-        "치료",
-        "검진",
-        "투약",
+        "지원금",
+        "현금지원",
+        "바우처",
+        "급여",
         "이동",
         "이동지원",
         "교통지원",
         "차량지원",
         "택시",
-        "지원금",
-        "현금지원",
-        "바우처",
-        "급여"
+        "진료",
+        "치료",
+        "검진",
+        "투약"
       ],
       "warnings": []
     },
@@ -280,9 +260,9 @@
       "search_tokens": [
         "도봉구",
         "노인일자리",
-        "취업지원",
         "수행기관",
         "대한노인회",
+        "취업지원",
         "02-993-9900",
         "02-900-4641",
         "02-3491-3356",
@@ -311,8 +291,8 @@
       "requires_basic_recipient": false,
       "search_tokens": [
         "성남시",
-        "기초연금",
         "돌봄",
+        "기초연금",
         "노인일자리",
         "의료",
         "031-729-2876"
@@ -334,8 +314,8 @@
       "requires_basic_recipient": false,
       "search_tokens": [
         "성남시",
-        "기초연금",
         "돌봄",
+        "기초연금",
         "수행기관",
         "031-729-2796"
       ],
@@ -351,16 +331,16 @@
       "inq_place": "031-747-6379",
       "target_age_group": "elderly",
       "service_tags": [
-        "daily_care",
-        "home_visit"
+        "home_visit",
+        "daily_care"
       ],
       "requires_ltc_grade": false,
       "requires_alone": true,
       "requires_basic_recipient": false,
       "search_tokens": [
         "성남시",
-        "기초연금",
         "돌봄",
+        "기초연금",
         "의료",
         "031-747-6379",
         "031-721-4009",
@@ -381,14 +361,14 @@
         "031-755-3677",
         "031-755-2018",
         "031-753-4511",
-        "일상생활",
-        "가사",
-        "요양",
-        "재가",
         "방문",
         "방문돌봄",
         "방문요양",
-        "재가방문"
+        "재가방문",
+        "일상생활",
+        "가사",
+        "요양",
+        "재가"
       ],
       "warnings": []
     }
@@ -416,16 +396,5 @@
       "reason": "not_service_like"
     }
   ],
-  "failed": [
-    {
-      "source_name": "용인시 용인실버케어순이",
-      "url": "https://www.yongin.go.kr/home/www/www18/www18_02/www18_02_04/www18_02_04_04.jsp",
-      "reason": "fetch_failed"
-    },
-    {
-      "source_name": "용인시 독거노인 응급안전안심서비스",
-      "url": "https://www.yongin.go.kr/home/www/www18/www18_02/www18_02_04/www18_02_04_03.jsp",
-      "reason": "fetch_failed"
-    }
-  ]
+  "failed": []
 }

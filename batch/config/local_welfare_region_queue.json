@@ -35,9 +35,7 @@
       "seed_titles": {
         "https://www.suwon.go.kr/web/welfare/BD_boardList.do?bbsCd=1003": "노인복지"
       }
-    }
-  ],
-  "pending": [
+    },
     {
       "region": "경기",
       "sub_region": "부천시",
@@ -49,7 +47,9 @@
       "seed_titles": {
         "https://www.bucheon.go.kr/site/homepage/menu/viewMenu?menuid=148006003005004": "기초연금"
       }
-    },
+    }
+  ],
+  "pending": [
     {
       "region": "충북",
       "sub_region": "청주시",
@@ -70,6 +70,13 @@
       "source_prefix": "성남시",
       "activated_by_report_started_at": "2026-04-27T11:34:40.376072+00:00",
       "activated_by_report_finished_at": "2026-04-27T11:36:24.555409+00:00"
+    },
+    {
+      "region": "경기",
+      "sub_region": "부천시",
+      "source_prefix": "부천시",
+      "activated_by_report_started_at": "2026-04-27T12:51:15.161962+00:00",
+      "activated_by_report_finished_at": "2026-04-27T12:53:55.957089+00:00"
     }
   ]
 }

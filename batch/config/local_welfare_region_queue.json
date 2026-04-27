@@ -47,9 +47,7 @@
       "seed_titles": {
         "https://www.bucheon.go.kr/site/homepage/menu/viewMenu?menuid=148006003005004": "기초연금"
       }
-    }
-  ],
-  "pending": [
+    },
     {
       "region": "충북",
       "sub_region": "청주시",
@@ -63,6 +61,7 @@
       }
     }
   ],
+  "pending": [],
   "completed": [
     {
       "region": "경기",
@@ -77,6 +76,13 @@
       "source_prefix": "부천시",
       "activated_by_report_started_at": "2026-04-27T12:51:15.161962+00:00",
       "activated_by_report_finished_at": "2026-04-27T12:53:55.957089+00:00"
+    },
+    {
+      "region": "충북",
+      "sub_region": "청주시",
+      "source_prefix": "청주시",
+      "activated_by_report_started_at": "2026-04-27T13:40:37.962277+00:00",
+      "activated_by_report_finished_at": "2026-04-27T13:43:34.134225+00:00"
     }
   ]
 }

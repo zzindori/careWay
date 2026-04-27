@@ -1,19 +1,112 @@
 {
-  "started_at": "2026-04-26T16:04:49.636833+00:00",
-  "finished_at": "2026-04-26T16:05:51.485320+00:00",
+  "started_at": "2026-04-27T10:36:52.922443+00:00",
+  "finished_at": "2026-04-27T10:37:56.767658+00:00",
   "target": "",
   "reset_existing": false,
-  "supabase_key_role": "anon",
+  "supabase_key_role": "service_role",
   "stats": {
-    "candidates": 0,
-    "promoted": 0,
+    "candidates": 3,
+    "promoted": 3,
     "held": 0,
     "skipped": 3,
-    "failed": 3,
+    "failed": 0,
     "quota": 0,
     "warnings": 0
   },
-  "promoted": [],
+  "promoted": [
+    {
+      "name": "괴산군 노인일자리",
+      "category": "finance",
+      "region": "충북",
+      "sub_region": "괴산군",
+      "online_url": "https://www.goesan.go.kr/welfare/contents.do?key=312",
+      "apply_place": "043-832-2444",
+      "inq_place": "043-832-2444",
+      "target_age_group": "elderly",
+      "service_tags": [],
+      "requires_ltc_grade": false,
+      "requires_alone": false,
+      "requires_basic_recipient": false,
+      "search_tokens": [
+        "괴산군",
+        "노인일자리",
+        "공동체사업단",
+        "노인일자리확대지원",
+        "노인공익활동사업",
+        "활동비",
+        "노인역량활용사업",
+        "29만원",
+        "63.4만원",
+        "10~12개월",
+        "10개월",
+        "취업알선형",
+        "취업지원",
+        "대한노인회",
+        "노인복지관",
+        "수행기관",
+        "267만원",
+        "043-832-2444",
+        "043-834-3411"
+      ],
+      "warnings": []
+    },
+    {
+      "name": "용인시 노인일자리",
+      "category": "finance",
+      "region": "경기",
+      "sub_region": "용인시",
+      "online_url": "https://www.yongin.go.kr/home/job/yiJobInfo/oldJob.jsp",
+      "apply_place": "사업 수행기관별 접수 / 070-4657-2271",
+      "inq_place": "070-4657-2271",
+      "target_age_group": "elderly",
+      "service_tags": [],
+      "requires_ltc_grade": false,
+      "requires_alone": false,
+      "requires_basic_recipient": false,
+      "search_tokens": [
+        "용인시",
+        "노인일자리",
+        "대한노인회",
+        "노인복지관",
+        "수행기관",
+        "취업알선형",
+        "의료",
+        "기초연금",
+        "급여",
+        "10~11개월",
+        "장애인",
+        "취약계층",
+        "돌봄",
+        "070-4657-2271",
+        "031-282-2348",
+        "031-266-0892",
+        "031-326-0243"
+      ],
+      "warnings": []
+    },
+    {
+      "name": "노원구 기초연금",
+      "category": "finance",
+      "region": "서울",
+      "sub_region": "노원구",
+      "online_url": "https://www.nowonbokjisaem.co.kr/------------/---------------------/%ea%b8%b0%ec%b4%88%ec%97%b0%ea%b8%88/",
+      "apply_place": "관할 읍면동 행정복지센터 / 02-2116-3762",
+      "inq_place": "02-2116-3762",
+      "target_age_group": "elderly",
+      "service_tags": [],
+      "requires_ltc_grade": false,
+      "requires_alone": false,
+      "requires_basic_recipient": false,
+      "search_tokens": [
+        "노원구",
+        "기초연금",
+        "행정복지센터",
+        "1개월",
+        "02-2116-3762"
+      ],
+      "warnings": []
+    }
+  ],
   "held": [],
   "skipped": [
     {
@@ -32,24 +125,5 @@
       "reason": "not_service_like"
     }
   ],
-  "failed": [
-    {
-      "source_name": "괴산군 노인일자리",
-      "url": "https://www.goesan.go.kr/welfare/contents.do?key=312",
-      "reason": "upsert_failed",
-      "error": "{'message': 'new row violates row-level security policy for table \"local_welfare_candidates\"', 'code': '42501', 'hint': None, 'details': None}"
-    },
-    {
-      "source_name": "용인시 노인일자리",
-      "url": "https://www.yongin.go.kr/home/job/yiJobInfo/oldJob.jsp",
-      "reason": "upsert_failed",
-      "error": "{'message': 'new row violates row-level security policy for table \"local_welfare_candidates\"', 'code': '42501', 'hint': None, 'details': None}"
-    },
-    {
-      "source_name": "노원구 기초연금",
-      "url": "https://www.nowonbokjisaem.co.kr/------------/---------------------/%ea%b8%b0%ec%b4%88%ec%97%b0%ea%b8%88/",
-      "reason": "upsert_failed",
-      "error": "{'message': 'new row violates row-level security policy for table \"local_welfare_candidates\"', 'code': '42501', 'hint': None, 'details': None}"
-    }
-  ]
+  "failed": []
 }

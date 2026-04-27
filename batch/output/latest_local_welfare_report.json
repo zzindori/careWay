@@ -1,22 +1,57 @@
 {
-  "started_at": "2026-04-27T15:15:20.293290+00:00",
-  "finished_at": "2026-04-27T15:15:40.033016+00:00",
+  "started_at": "2026-04-27T15:32:39.734145+00:00",
+  "finished_at": "2026-04-27T15:33:06.249412+00:00",
   "target": "",
   "run_profile": "discovery",
   "recheck_days": 30,
   "reset_existing": false,
   "supabase_key_role": "service_role",
   "stats": {
-    "candidates": 0,
+    "candidates": 1,
     "promoted": 0,
-    "held": 0,
+    "held": 1,
     "skipped": 10,
     "failed": 0,
     "quota": 0,
-    "warnings": 0
+    "warnings": 1
   },
   "promoted": [],
-  "held": [],
+  "held": [
+    {
+      "name": "전주시 노인복지정책",
+      "category": "living",
+      "region": "전북",
+      "sub_region": "전주시",
+      "online_url": "https://www.jeonju.go.kr/index.9is?contentUid=ff8080818990c349018b041aa6f93ac0",
+      "apply_place": "전주시 노인복지정책",
+      "inq_place": "",
+      "target_age_group": "elderly",
+      "service_tags": [
+        "mobility",
+        "hospital_companion"
+      ],
+      "requires_ltc_grade": false,
+      "requires_alone": false,
+      "requires_basic_recipient": false,
+      "search_tokens": [
+        "전주시",
+        "돌봄",
+        "노인복지관",
+        "이동",
+        "이동지원",
+        "교통지원",
+        "차량지원",
+        "택시",
+        "병원동행",
+        "동행",
+        "의료동행",
+        "병원"
+      ],
+      "warnings": [
+        "missing_phone"
+      ]
+    }
+  ],
   "skipped": [
     {
       "source_name": "괴산군 노인일자리",

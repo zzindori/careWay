@@ -1,6 +1,6 @@
 {
-  "started_at": "2026-04-27T15:43:57.279547+00:00",
-  "finished_at": "2026-04-27T15:44:19.190448+00:00",
+  "started_at": "2026-04-27T15:52:14.063388+00:00",
+  "finished_at": "2026-04-27T15:52:38.282635+00:00",
   "target": "",
   "run_profile": "discovery",
   "recheck_days": 30,
@@ -27,25 +27,25 @@
       "inq_place": "",
       "target_age_group": "elderly",
       "service_tags": [
-        "mobility",
-        "hospital_companion"
+        "hospital_companion",
+        "mobility"
       ],
       "requires_ltc_grade": false,
       "requires_alone": false,
       "requires_basic_recipient": false,
       "search_tokens": [
         "전주시",
-        "노인복지관",
         "돌봄",
+        "노인복지관",
+        "병원동행",
+        "동행",
+        "의료동행",
+        "병원",
         "이동",
         "이동지원",
         "교통지원",
         "차량지원",
-        "택시",
-        "병원동행",
-        "동행",
-        "의료동행",
-        "병원"
+        "택시"
       ],
       "warnings": [
         "missing_phone"

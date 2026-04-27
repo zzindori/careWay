@@ -60,6 +60,8 @@ jobs:
       LOCAL_WELFARE_CRAWL_TARGET: ${{ inputs.target }}
       LOCAL_WELFARE_RESET_EXISTING: ${{ inputs.reset_existing || 'false' }}
       LOCAL_WELFARE_PROMOTE_WARNINGS: ${{ inputs.promote_warnings || 'false' }}
+      LOCAL_WELFARE_RUN_PROFILE: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_profile == 'recheck') && 'recheck' || 'discovery' }}
+      LOCAL_WELFARE_RECHECK_DAYS: '30'
       LOCAL_WELFARE_AUTO_ADVANCE_QUEUE: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_profile == 'recheck') && 'false' || 'true' }}
       LOCAL_WELFARE_REPORT_PATH: batch/output/local_welfare_report.json
 
@@ -87,6 +89,7 @@ jobs:
       - name: 지역 복지 수집 실행 (월간/분기 재검증)
         if: github.event_name == 'schedule' && (github.event.schedule == '20 3 1 * *' || github.event.schedule == '35 3 1 1,4,7,10 *')
         env:
+          LOCAL_WELFARE_RUN_PROFILE: 'recheck'
           LOCAL_WELFARE_AUTO_ADVANCE_QUEUE: 'false'
         run: python batch/local_welfare_batch.py
 

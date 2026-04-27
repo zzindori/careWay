@@ -14,7 +14,7 @@ import os
 import re
 import time
 import base64
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from supabase import create_client
@@ -35,6 +35,8 @@ LOCAL_WELFARE_CRAWL_TARGET = os.environ.get("LOCAL_WELFARE_CRAWL_TARGET", "pilot
 LOCAL_WELFARE_REPORT_PATH = os.environ.get("LOCAL_WELFARE_REPORT_PATH", "batch/output/local_welfare_report.json")
 LOCAL_WELFARE_RESET_EXISTING = os.environ.get("LOCAL_WELFARE_RESET_EXISTING", "false").lower() in {"1", "true", "yes"}
 LOCAL_WELFARE_PROMOTE_WARNINGS = os.environ.get("LOCAL_WELFARE_PROMOTE_WARNINGS", "false").lower() in {"1", "true", "yes"}
+LOCAL_WELFARE_RUN_PROFILE = os.environ.get("LOCAL_WELFARE_RUN_PROFILE", "discovery").strip().lower() or "discovery"
+LOCAL_WELFARE_RECHECK_DAYS = int(os.environ.get("LOCAL_WELFARE_RECHECK_DAYS", "30"))
 
 ALLOWED_SERVICE_TAGS = {
     "dementia",
@@ -456,6 +458,44 @@ def _upsert_candidate(supabase, target: dict, page: dict, payload: dict | None, 
     supabase.table("local_welfare_candidates").upsert(record, on_conflict="source_url").execute()
 
 
+def _fetch_recent_local_promoted_urls(supabase, days: int) -> set[str]:
+    if days <= 0:
+        return set()
+    threshold = datetime.now(timezone.utc) - timedelta(days=days)
+    urls: set[str] = set()
+    offset = 0
+    page_size = 1000
+    while True:
+        rows = (
+            supabase.table("welfare_services")
+            .select("online_url,updated_at")
+            .eq("source", "local_site_pilot")
+            .range(offset, offset + page_size - 1)
+            .execute()
+            .data
+            or []
+        )
+        if not rows:
+            break
+        for row in rows:
+            url = (row.get("online_url") or "").strip()
+            if not url:
+                continue
+            updated_at = row.get("updated_at")
+            if not updated_at:
+                continue
+            try:
+                ts = datetime.fromisoformat(str(updated_at).replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if ts >= threshold:
+                urls.add(url)
+        if len(rows) < page_size:
+            break
+        offset += page_size
+    return urls
+
+
 def _write_report(report: dict) -> None:
     path = Path(LOCAL_WELFARE_REPORT_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -579,6 +619,8 @@ def run() -> int:
         "started_at": datetime.now(timezone.utc).isoformat(),
         "finished_at": None,
         "target": LOCAL_WELFARE_CRAWL_TARGET,
+        "run_profile": LOCAL_WELFARE_RUN_PROFILE,
+        "recheck_days": LOCAL_WELFARE_RECHECK_DAYS,
         "reset_existing": LOCAL_WELFARE_RESET_EXISTING,
         "supabase_key_role": key_role,
         "stats": {"candidates": 0, "promoted": 0, "held": 0, "skipped": 0, "failed": 0, "quota": 0, "warnings": 0},
@@ -600,6 +642,13 @@ def run() -> int:
         print("  기존 지역 후보/승격 데이터 정리 완료")
     else:
         print("  기존 지역 수집 데이터 유지: 후보/최종 URL 기준 누적 upsert")
+    recent_promoted_urls: set[str] = set()
+    if LOCAL_WELFARE_RUN_PROFILE != "recheck" and not LOCAL_WELFARE_RESET_EXISTING:
+        recent_promoted_urls = _fetch_recent_local_promoted_urls(supabase, LOCAL_WELFARE_RECHECK_DAYS)
+        if recent_promoted_urls:
+            print(
+                f"  최근 승격 URL {len(recent_promoted_urls)}건은 {LOCAL_WELFARE_RECHECK_DAYS}일 재검증 주기 전까지 스킵"
+            )
 
     discovered_targets = discover_elderly_region_targets()
     if discovered_targets:
@@ -611,6 +660,17 @@ def run() -> int:
         if target["url"] in seen_urls:
             continue
         seen_urls.add(target["url"])
+        if target["url"] in recent_promoted_urls:
+            print(f"  {target['source_name']} 수집 중... ↷ 최근 승격(재검증 대기)")
+            skip += 1
+            report["skipped"].append(
+                {
+                    "source_name": target["source_name"],
+                    "url": target["url"],
+                    "reason": "recent_promoted_not_due",
+                }
+            )
+            continue
         print(f"  {target['source_name']} 수집 중... ", end="", flush=True)
         page = fetch_local_pilot_page(target)
         if not page:

@@ -1,0 +1,18 @@
+{
+  "active": [],
+  "pending": [
+    {
+      "region": "경기",
+      "sub_region": "성남시",
+      "area_detail": "",
+      "source_prefix": "성남시",
+      "seed_urls": [
+        "https://www.seongnam.go.kr/city/1000216/10120/contents.do"
+      ],
+      "seed_titles": {
+        "https://www.seongnam.go.kr/city/1000216/10120/contents.do": "노인복지"
+      }
+    }
+  ],
+  "completed": []
+}

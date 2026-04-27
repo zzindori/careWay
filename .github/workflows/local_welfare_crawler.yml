@@ -6,8 +6,12 @@ on:
       - main
     paths:
       - 'batch/local_welfare_*.py'
+      - 'batch/advance_local_region_queue.py'
+      - 'batch/config/local_welfare_region_queue.json'
       - 'supabase/migrations/**'
       - '.github/workflows/local_welfare_crawler.yml'
+  schedule:
+    - cron: '15 */3 * * *'
   workflow_dispatch:
     inputs:
       target:
@@ -68,6 +72,10 @@ jobs:
       - name: 지역 복지 수집 실행
         run: python batch/local_welfare_batch.py
 
+      - name: 자동 지역 큐 승급 (성공 실행 시)
+        if: always()
+        run: python batch/advance_local_region_queue.py
+
       - name: 수집 리포트 업로드
         if: always()
         uses: actions/upload-artifact@v4
@@ -86,11 +94,11 @@ jobs:
           cp batch/output/local_welfare_report.json batch/output/latest_local_welfare_report.json
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add batch/output/latest_local_welfare_report.json
+          git add batch/output/latest_local_welfare_report.json batch/config/local_welfare_region_queue.json
           if git diff --cached --quiet; then
             echo "No report changes"
             exit 0
           fi
-          git commit -m "chore(batch): update local welfare crawl report"
+          git commit -m "chore(batch): update local welfare report and region queue"
           git pull --rebase origin main
           git push origin HEAD:main

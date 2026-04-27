@@ -9,7 +9,9 @@ keeps database writes and app-specific welfare payload mapping.
 from __future__ import annotations
 
 import html as html_lib
+import json
 import re
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -46,7 +48,7 @@ PILOT_LOCAL_TARGETS = [
 LOCAL_PILOT_KEYWORDS = [
     "노인", "어르신", "고령", "65세", "60세", "기초연금", "장기요양",
     "치매", "방문건강", "방문간호", "돌봄", "독거", "무료급식", "도시락",
-    "보건소", "복지관", "행정복지센터", "주민센터", "수지구", "괴산군",
+    "보건소", "복지관", "행정복지센터", "주민센터", "수지구", "괴산군", "도봉구",
     "장애인", "특별공급", "복지사각지대", "취약계층",
 ]
 
@@ -155,7 +157,41 @@ REGION_ELDERLY_SOURCES = [
             "https://www.nowonbokjisaem.co.kr/department/%eb%85%b8%ec%9b%90%ea%b5%ac%ec%b2%ad-%ea%b3%a0%eb%a0%b9%ec%82%ac%ed%9a%8c%ec%a0%95%ec%b1%85%ea%b3%bc/": "노원구청 고령사회정책과",
         },
     },
+    {
+        "region": "서울",
+        "sub_region": "도봉구",
+        "area_detail": "",
+        "source_prefix": "도봉구",
+        "seed_urls": [
+            "http://www.dobong.go.kr/Contents.asp?code=10009134",
+            "http://www.dobong.go.kr/Contents.asp?code=10009143",
+            "https://welfare.dobong.go.kr/",
+        ],
+        "seed_titles": {
+            "http://www.dobong.go.kr/Contents.asp?code=10009134": "기초연금",
+            "http://www.dobong.go.kr/Contents.asp?code=10009143": "노인일자리",
+            "https://welfare.dobong.go.kr/": "도봉복지로",
+        },
+    },
 ]
+
+REGION_QUEUE_PATH = Path(__file__).resolve().parent / "config" / "local_welfare_region_queue.json"
+
+
+def load_region_elderly_sources() -> list[dict[str, Any]]:
+    """Return active region sources from code defaults + optional queue file."""
+    sources: list[dict[str, Any]] = [dict(item) for item in REGION_ELDERLY_SOURCES]
+    if not REGION_QUEUE_PATH.exists():
+        return sources
+    try:
+        payload = json.loads(REGION_QUEUE_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"  ⚠ 지역 큐 파일 파싱 실패 ({REGION_QUEUE_PATH.name}): {exc}")
+        return sources
+    for item in payload.get("active", []):
+        if isinstance(item, dict) and item.get("seed_urls"):
+            sources.append(item)
+    return sources
 
 
 def strip_html(text: str) -> str:
@@ -369,7 +405,7 @@ def discover_elderly_region_targets(limit_per_region: int = 8) -> list[dict[str,
     discovered: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
 
-    for source in REGION_ELDERLY_SOURCES:
+    for source in load_region_elderly_sources():
         candidates: list[tuple[int, dict[str, Any]]] = []
         for seed_url in source["seed_urls"]:
             try:

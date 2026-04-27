@@ -1,6 +1,5 @@
 {
-  "active": [],
-  "pending": [
+  "active": [
     {
       "region": "경기",
       "sub_region": "성남시",
@@ -14,5 +13,14 @@
       }
     }
   ],
-  "completed": []
+  "pending": [],
+  "completed": [
+    {
+      "region": "경기",
+      "sub_region": "성남시",
+      "source_prefix": "성남시",
+      "activated_by_report_started_at": "2026-04-27T11:34:40.376072+00:00",
+      "activated_by_report_finished_at": "2026-04-27T11:36:24.555409+00:00"
+    }
+  ]
 }

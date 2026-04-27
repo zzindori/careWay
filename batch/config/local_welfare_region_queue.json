@@ -11,6 +11,30 @@
       "seed_titles": {
         "https://www.seongnam.go.kr/city/1000216/10120/contents.do": "노인복지"
       }
+    },
+    {
+      "region": "서울",
+      "sub_region": "강북구",
+      "area_detail": "",
+      "source_prefix": "강북구",
+      "seed_urls": [
+        "https://www.gangbuk.go.kr/welfare/main.do"
+      ],
+      "seed_titles": {
+        "https://www.gangbuk.go.kr/welfare/main.do": "강북구 복지포털"
+      }
+    },
+    {
+      "region": "경기",
+      "sub_region": "수원시",
+      "area_detail": "",
+      "source_prefix": "수원시",
+      "seed_urls": [
+        "https://www.suwon.go.kr/web/welfare/BD_boardList.do?bbsCd=1003"
+      ],
+      "seed_titles": {
+        "https://www.suwon.go.kr/web/welfare/BD_boardList.do?bbsCd=1003": "노인복지"
+      }
     }
   ],
   "pending": [],

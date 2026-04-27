@@ -59,9 +59,7 @@
       "seed_titles": {
         "https://cheongju.go.kr/bokji/index.do": "청주시청 복지국"
       }
-    }
-  ],
-  "pending": [
+    },
     {
       "region": "전북",
       "sub_region": "전주시",
@@ -73,7 +71,9 @@
       "seed_titles": {
         "https://www.jeonju.go.kr/index.9is?contentUid=9be517a7914528ce01953583f9047544": "어르신 지원 경제적 지원"
       }
-    },
+    }
+  ],
+  "pending": [
     {
       "region": "경남",
       "sub_region": "창원시",
@@ -108,6 +108,13 @@
       "source_prefix": "청주시",
       "activated_by_report_started_at": "2026-04-27T13:40:37.962277+00:00",
       "activated_by_report_finished_at": "2026-04-27T13:43:34.134225+00:00"
+    },
+    {
+      "region": "전북",
+      "sub_region": "전주시",
+      "source_prefix": "전주시",
+      "activated_by_report_started_at": "2026-04-27T14:39:57.097818+00:00",
+      "activated_by_report_finished_at": "2026-04-27T14:41:13.332224+00:00"
     }
   ]
 }

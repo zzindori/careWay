@@ -23,11 +23,16 @@ def _load_json(path: Path) -> dict:
 
 def _is_healthy(report: dict) -> bool:
     stats = report.get("stats") or {}
-    failed = int(stats.get("failed") or 0)
     held = int(stats.get("held") or 0)
     warnings = int(stats.get("warnings") or 0)
     candidates = int(stats.get("candidates") or 0)
-    return failed == 0 and held == 0 and warnings == 0 and candidates > 0
+    failed_items = list(report.get("failed") or [])
+    # 탐색성 URL의 일시적 접근 실패(fetch_failed)는 큐 확장을 막지 않는다.
+    hard_failed = [
+        item for item in failed_items
+        if str(item.get("reason") or "") != "fetch_failed"
+    ]
+    return len(hard_failed) == 0 and held == 0 and warnings == 0 and candidates > 0
 
 
 def main() -> int:

@@ -466,19 +466,23 @@ def _fetch_recent_local_promoted_urls(supabase, days: int) -> set[str]:
     offset = 0
     page_size = 1000
     while True:
-        rows = (
-            supabase.table("welfare_services")
-            .select("online_url,updated_at")
-            .eq("source", "local_site_pilot")
-            .range(offset, offset + page_size - 1)
-            .execute()
-            .data
-            or []
-        )
+        try:
+            rows = (
+                supabase.table("local_welfare_candidates")
+                .select("source_url,updated_at,status")
+                .eq("status", "promoted")
+                .range(offset, offset + page_size - 1)
+                .execute()
+                .data
+                or []
+            )
+        except Exception as exc:
+            print(f"  ⚠ 최근 승격 URL 조회 실패(스킵 로직 비활성): {exc}")
+            return set()
         if not rows:
             break
         for row in rows:
-            url = (row.get("online_url") or "").strip()
+            url = (row.get("source_url") or "").strip()
             if not url:
                 continue
             updated_at = row.get("updated_at")

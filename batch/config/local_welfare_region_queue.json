@@ -61,7 +61,32 @@
       }
     }
   ],
-  "pending": [],
+  "pending": [
+    {
+      "region": "전북",
+      "sub_region": "전주시",
+      "area_detail": "",
+      "source_prefix": "전주시",
+      "seed_urls": [
+        "https://www.jeonju.go.kr/index.9is?contentUid=9be517a7914528ce01953583f9047544"
+      ],
+      "seed_titles": {
+        "https://www.jeonju.go.kr/index.9is?contentUid=9be517a7914528ce01953583f9047544": "어르신 지원 경제적 지원"
+      }
+    },
+    {
+      "region": "경남",
+      "sub_region": "창원시",
+      "area_detail": "",
+      "source_prefix": "창원시",
+      "seed_urls": [
+        "http://www.changwon.go.kr/cwportal/depart/11067/14022/14044.web"
+      ],
+      "seed_titles": {
+        "http://www.changwon.go.kr/cwportal/depart/11067/14022/14044.web": "기초연금"
+      }
+    }
+  ],
   "completed": [
     {
       "region": "경기",

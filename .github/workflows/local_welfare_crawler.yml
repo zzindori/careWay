@@ -57,6 +57,7 @@ jobs:
     timeout-minutes: 60
     env:
       SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
       LOCAL_WELFARE_CRAWL_TARGET: ${{ inputs.target }}
       LOCAL_WELFARE_RESET_EXISTING: ${{ inputs.reset_existing || 'false' }}
       LOCAL_WELFARE_PROMOTE_WARNINGS: ${{ inputs.promote_warnings || 'false' }}
@@ -81,6 +82,9 @@ jobs:
 
       - name: Playwright 브라우저 설치
         run: playwright install --with-deps chromium
+
+      - name: 지역 큐 SQL 마이그레이션 적용
+        run: python batch/apply_sql_migrations.py
 
       - name: 지역 복지 수집 실행
         if: github.event_name != 'schedule' || github.event.schedule == '15 */3 * * *'

@@ -500,6 +500,41 @@ def _fetch_recent_local_promoted_urls(supabase, days: int) -> set[str]:
     return urls
 
 
+def _fetch_active_region_sources(supabase) -> list[dict]:
+    """Load active region queue from DB; fallback to crawler defaults on failure."""
+    try:
+        rows = (
+            supabase.table("local_welfare_region_queue")
+            .select("region,sub_region,area_detail,source_prefix,seed_urls,seed_titles")
+            .eq("status", "active")
+            .order("priority", desc=False)
+            .order("id", desc=False)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        print(f"  ⚠ 지역 큐(DB) 조회 실패, 기본 소스로 진행: {exc}")
+        return []
+
+    sources: list[dict] = []
+    for row in rows:
+        seed_urls = row.get("seed_urls") or []
+        if not isinstance(seed_urls, list) or not seed_urls:
+            continue
+        sources.append(
+            {
+                "region": row.get("region") or "",
+                "sub_region": row.get("sub_region") or "",
+                "area_detail": row.get("area_detail") or "",
+                "source_prefix": row.get("source_prefix") or row.get("sub_region") or row.get("region") or "지역",
+                "seed_urls": seed_urls,
+                "seed_titles": row.get("seed_titles") or {},
+            }
+        )
+    return sources
+
+
 def _write_report(report: dict) -> None:
     path = Path(LOCAL_WELFARE_REPORT_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -654,7 +689,12 @@ def run() -> int:
                 f"  최근 승격 URL {len(recent_promoted_urls)}건은 {LOCAL_WELFARE_RECHECK_DAYS}일 재검증 주기 전까지 스킵"
             )
 
-    discovered_targets = discover_elderly_region_targets()
+    db_region_sources = _fetch_active_region_sources(supabase)
+    if db_region_sources:
+        print(f"  DB 활성 지역 큐 사용: {len(db_region_sources)}건")
+    discovered_targets = discover_elderly_region_targets(
+        region_sources=db_region_sources or None
+    )
     if discovered_targets:
         print(f"  지역 노인복지 후보 발견: {len(discovered_targets)}건")
 

@@ -401,11 +401,14 @@ def _make_elderly_target(source: dict[str, Any], url: str, title: str) -> dict[s
     }
 
 
-def discover_elderly_region_targets(limit_per_region: int = 8) -> list[dict[str, Any]]:
+def discover_elderly_region_targets(
+    limit_per_region: int = 8,
+    region_sources: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     discovered: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
 
-    for source in load_region_elderly_sources():
+    for source in (region_sources or load_region_elderly_sources()):
         candidates: list[tuple[int, dict[str, Any]]] = []
         for seed_url in source["seed_urls"]:
             try:

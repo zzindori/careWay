@@ -9,10 +9,14 @@ import json
 import os
 from pathlib import Path
 
+from supabase import create_client
+
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT_PATH = ROOT / "batch" / "output" / "local_welfare_report.json"
 QUEUE_PATH = ROOT / "batch" / "config" / "local_welfare_region_queue.json"
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://dnnidnqwkjmbssxixpjg.supabase.co")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
 
 def _load_json(path: Path) -> dict:
@@ -35,6 +39,44 @@ def _is_healthy(report: dict) -> bool:
     return len(hard_failed) == 0 and held == 0 and warnings == 0 and candidates > 0
 
 
+def _advance_db_queue(report: dict) -> bool:
+    if not SUPABASE_SERVICE_KEY:
+        return False
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        pending = (
+            supabase.table("local_welfare_region_queue")
+            .select("id,region,sub_region,source_prefix")
+            .eq("status", "pending")
+            .order("priority", desc=False)
+            .order("id", desc=False)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not pending:
+            print("No pending regions in DB queue.")
+            return True
+        next_region = pending[0]
+        update_payload = {
+            "status": "active",
+            "activated_by_report_started_at": report.get("started_at", ""),
+            "activated_by_report_finished_at": report.get("finished_at", ""),
+        }
+        (
+            supabase.table("local_welfare_region_queue")
+            .update(update_payload)
+            .eq("id", next_region["id"])
+            .execute()
+        )
+        print(f"Advanced DB region queue: {next_region.get('source_prefix', 'unknown')}")
+        return True
+    except Exception as exc:
+        print(f"DB queue advance failed, fallback to JSON: {exc}")
+        return False
+
+
 def main() -> int:
     auto_advance = os.environ.get("LOCAL_WELFARE_AUTO_ADVANCE_QUEUE", "true").lower() in {
         "1",
@@ -52,6 +94,9 @@ def main() -> int:
 
     if not _is_healthy(report):
         print("Run is not healthy enough to advance queue.")
+        return 0
+
+    if _advance_db_queue(report):
         return 0
 
     queue = _load_json(QUEUE_PATH)

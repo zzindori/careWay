@@ -12,8 +12,18 @@ on:
       - '.github/workflows/local_welfare_crawler.yml'
   schedule:
     - cron: '15 */3 * * *'
+    - cron: '20 3 1 * *'
+    - cron: '35 3 1 1,4,7,10 *'
   workflow_dispatch:
     inputs:
+      run_profile:
+        description: '실행 프로필 (신규수집/정기재검증)'
+        required: false
+        default: 'discovery'
+        type: choice
+        options:
+          - discovery
+          - recheck
       target:
         description: '수집 대상'
         required: false
@@ -50,6 +60,7 @@ jobs:
       LOCAL_WELFARE_CRAWL_TARGET: ${{ inputs.target }}
       LOCAL_WELFARE_RESET_EXISTING: ${{ inputs.reset_existing || 'false' }}
       LOCAL_WELFARE_PROMOTE_WARNINGS: ${{ inputs.promote_warnings || 'false' }}
+      LOCAL_WELFARE_AUTO_ADVANCE_QUEUE: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_profile == 'recheck') && 'false' || 'true' }}
       LOCAL_WELFARE_REPORT_PATH: batch/output/local_welfare_report.json
 
     steps:
@@ -70,6 +81,13 @@ jobs:
         run: playwright install --with-deps chromium
 
       - name: 지역 복지 수집 실행
+        if: github.event_name != 'schedule' || github.event.schedule == '15 */3 * * *'
+        run: python batch/local_welfare_batch.py
+
+      - name: 지역 복지 수집 실행 (월간/분기 재검증)
+        if: github.event_name == 'schedule' && (github.event.schedule == '20 3 1 * *' || github.event.schedule == '35 3 1 1,4,7,10 *')
+        env:
+          LOCAL_WELFARE_AUTO_ADVANCE_QUEUE: 'false'
         run: python batch/local_welfare_batch.py
 
       - name: 자동 지역 큐 승급 (성공 실행 시)

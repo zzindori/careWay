@@ -6,6 +6,7 @@ Advance local welfare region queue when latest run is healthy.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 
@@ -30,6 +31,15 @@ def _is_healthy(report: dict) -> bool:
 
 
 def main() -> int:
+    auto_advance = os.environ.get("LOCAL_WELFARE_AUTO_ADVANCE_QUEUE", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    if not auto_advance:
+        print("Queue auto-advance disabled by LOCAL_WELFARE_AUTO_ADVANCE_QUEUE.")
+        return 0
+
     report = _load_json(REPORT_PATH)
     if not report:
         print("No report found, skip queue advance.")

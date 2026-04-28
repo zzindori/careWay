@@ -36,14 +36,28 @@ def _run_psql(db_url: str, sql_file: Path) -> None:
 
 def main() -> int:
     db_url = os.environ.get("SUPABASE_DB_URL", "").strip()
+    required = os.environ.get("LOCAL_WELFARE_SQL_APPLY_REQUIRED", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
     if not db_url:
         print("SUPABASE_DB_URL is not set. Skip SQL migration apply.")
         return 0
 
     print("Applying SQL migrations for regional queue...")
-    for sql_file in MIGRATIONS:
-        print(f"- {sql_file.name}")
-        _run_psql(db_url, sql_file)
+    try:
+        for sql_file in MIGRATIONS:
+            print(f"- {sql_file.name}")
+            _run_psql(db_url, sql_file)
+    except subprocess.CalledProcessError as exc:
+        print(f"SQL migration apply failed: {exc}")
+        print(
+            "Hint: GitHub hosted runners may fail on direct DB host (IPv6 route). "
+            "Use Supabase 'Connection pooling' URI for SUPABASE_DB_URL."
+        )
+        if required:
+            raise
 
     print("SQL migrations applied.")
     return 0

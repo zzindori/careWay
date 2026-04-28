@@ -17,6 +17,7 @@ REPORT_PATH = ROOT / "batch" / "output" / "local_welfare_report.json"
 QUEUE_PATH = ROOT / "batch" / "config" / "local_welfare_region_queue.json"
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://dnnidnqwkjmbssxixpjg.supabase.co")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+LOCAL_WELFARE_MAX_ACTIVE_REGIONS = int(os.environ.get("LOCAL_WELFARE_MAX_ACTIVE_REGIONS", "6"))
 
 
 def _load_json(path: Path) -> dict:
@@ -60,6 +61,29 @@ def _advance_db_queue(report: dict) -> bool:
         if not pending:
             print("No pending regions in DB queue.")
             return True
+        active_rows = (
+            supabase.table("local_welfare_region_queue")
+            .select("id,source_prefix,priority")
+            .eq("status", "active")
+            .order("priority", desc=False)
+            .order("id", desc=False)
+            .execute()
+            .data
+            or []
+        )
+        # Keep active regions in a fixed-size window so nationwide rollout keeps progressing.
+        if len(active_rows) >= LOCAL_WELFARE_MAX_ACTIVE_REGIONS:
+            oldest_active = active_rows[-1]
+            (
+                supabase.table("local_welfare_region_queue")
+                .update({"status": "paused"})
+                .eq("id", oldest_active["id"])
+                .execute()
+            )
+            print(
+                "Paused active region to free slot: "
+                f"{oldest_active.get('source_prefix', 'unknown')}"
+            )
         next_region = pending[0]
         update_payload = {
             "status": "active",

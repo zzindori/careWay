@@ -63,6 +63,7 @@ jobs:
       LOCAL_WELFARE_PROMOTE_WARNINGS: ${{ inputs.promote_warnings || 'false' }}
       LOCAL_WELFARE_RUN_PROFILE: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_profile == 'recheck') && 'recheck' || 'discovery' }}
       LOCAL_WELFARE_RECHECK_DAYS: '30'
+      LOCAL_WELFARE_MAX_ACTIVE_REGIONS: '6'
       LOCAL_WELFARE_AUTO_ADVANCE_QUEUE: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_profile == 'recheck') && 'false' || 'true' }}
       LOCAL_WELFARE_REPORT_PATH: batch/output/local_welfare_report.json
 

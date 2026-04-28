@@ -26,6 +26,7 @@ SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 ENRICH_LIMIT = int(os.environ.get("LOCAL_WELFARE_SEED_ENRICH_LIMIT", "40"))
 ENRICH_SLEEP_SECONDS = float(os.environ.get("LOCAL_WELFARE_SEED_ENRICH_SLEEP_SECONDS", "0.4"))
 REQUEST_TIMEOUT_SECONDS = 12
+ENRICH_MAX_SECONDS = int(os.environ.get("LOCAL_WELFARE_SEED_ENRICH_MAX_SECONDS", "180"))
 
 WEB_HEADERS = {
     "User-Agent": (
@@ -158,8 +159,12 @@ def main() -> int:
         print("No missing seed_urls rows found.")
         return 0
 
+    started_at = time.monotonic()
     updated = 0
     for row in rows:
+        if (time.monotonic() - started_at) >= ENRICH_MAX_SECONDS:
+            print("Seed URL enrichment time budget reached. Stop this run and continue next schedule.")
+            break
         sub_region = str(row.get("sub_region") or "").strip()
         if not sub_region:
             continue

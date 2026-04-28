@@ -96,8 +96,9 @@ jobs:
       - name: 전국 시군구 시드 URL 자동 보강
         continue-on-error: true
         env:
-          LOCAL_WELFARE_SEED_ENRICH_LIMIT: '60'
-          LOCAL_WELFARE_SEED_ENRICH_SLEEP_SECONDS: '0.3'
+          LOCAL_WELFARE_SEED_ENRICH_LIMIT: '20'
+          LOCAL_WELFARE_SEED_ENRICH_SLEEP_SECONDS: '0.1'
+          LOCAL_WELFARE_SEED_ENRICH_MAX_SECONDS: '150'
         run: python batch/enrich_local_region_seed_urls.py
 
       - name: 지역 복지 수집 실행

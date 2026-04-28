@@ -1,6 +1,6 @@
 {
-  "started_at": "2026-04-27T21:36:08.899638+00:00",
-  "finished_at": "2026-04-27T21:36:31.437732+00:00",
+  "started_at": "2026-04-28T01:08:51.546881+00:00",
+  "finished_at": "2026-04-28T01:09:23.416352+00:00",
   "target": "",
   "run_profile": "discovery",
   "recheck_days": 30,
@@ -35,8 +35,8 @@
       "requires_basic_recipient": false,
       "search_tokens": [
         "전주시",
-        "돌봄",
         "노인복지관",
+        "돌봄",
         "이동",
         "이동지원",
         "교통지원",

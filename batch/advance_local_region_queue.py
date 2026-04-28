@@ -64,8 +64,9 @@ def _advance_db_queue(report: dict) -> bool:
             return True
         active_rows = (
             supabase.table("local_welfare_region_queue")
-            .select("id,source_prefix,priority")
+            .select("id,source_prefix,priority,updated_at")
             .eq("status", "active")
+            .order("updated_at", desc=False)
             .order("priority", desc=False)
             .order("id", desc=False)
             .execute()
@@ -80,7 +81,8 @@ def _advance_db_queue(report: dict) -> bool:
 
         pause_count = max(0, promote_count - available_slots)
         if pause_count > 0:
-            to_pause = active_rows[-pause_count:]
+            # 오래 유지된 active부터 교체해 같은 지역 반복을 줄인다.
+            to_pause = active_rows[:pause_count]
             for row in to_pause:
                 (
                     supabase.table("local_welfare_region_queue")

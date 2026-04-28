@@ -11,7 +11,7 @@ on:
       - 'supabase/migrations/**'
       - '.github/workflows/local_welfare_crawler.yml'
   schedule:
-    - cron: '15 * * * *'
+    - cron: '*/10 * * * *'
     - cron: '20 3 1 * *'
     - cron: '35 3 1 1,4,7,10 *'
   workflow_dispatch:
@@ -92,7 +92,7 @@ jobs:
         run: python batch/seed_all_sigungu_queue.py
 
       - name: 지역 복지 수집 실행
-        if: github.event_name != 'schedule' || github.event.schedule == '15 * * * *'
+        if: github.event_name != 'schedule' || github.event.schedule == '*/10 * * * *'
         run: python batch/local_welfare_batch.py
 
       - name: 지역 복지 수집 실행 (월간/분기 재검증)

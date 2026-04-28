@@ -1,56 +1,21 @@
 {
-  "started_at": "2026-04-28T12:31:19.885541+00:00",
-  "finished_at": "2026-04-28T12:31:41.361359+00:00",
+  "started_at": "2026-04-28T12:45:18.422904+00:00",
+  "finished_at": "2026-04-28T12:45:38.349648+00:00",
   "target": "",
   "run_profile": "discovery",
   "recheck_days": 30,
   "reset_existing": false,
   "supabase_key_role": "service_role",
   "stats": {
-    "candidates": 1,
-    "promoted": 1,
+    "candidates": 0,
+    "promoted": 0,
     "held": 0,
-    "skipped": 9,
+    "skipped": 10,
     "failed": 0,
     "quota": 0,
-    "warnings": 1
+    "warnings": 0
   },
-  "promoted": [
-    {
-      "name": "전주시 노인복지정책",
-      "category": "living",
-      "region": "전북",
-      "sub_region": "전주시",
-      "online_url": "https://www.jeonju.go.kr/index.9is?contentUid=ff8080818990c349018b041aa6f93ac0",
-      "apply_place": "전주시 노인복지정책",
-      "inq_place": "",
-      "target_age_group": "elderly",
-      "service_tags": [
-        "mobility",
-        "hospital_companion"
-      ],
-      "requires_ltc_grade": false,
-      "requires_alone": false,
-      "requires_basic_recipient": false,
-      "search_tokens": [
-        "전주시",
-        "노인복지관",
-        "돌봄",
-        "이동",
-        "이동지원",
-        "교통지원",
-        "차량지원",
-        "택시",
-        "병원동행",
-        "동행",
-        "의료동행",
-        "병원"
-      ],
-      "warnings": [
-        "missing_phone"
-      ]
-    }
-  ],
+  "promoted": [],
   "held": [],
   "skipped": [
     {
@@ -96,6 +61,11 @@
     {
       "source_name": "부천시 노인복지시설",
       "url": "https://www.bucheon.go.kr/site/homepage/menu/viewMenu?menuid=148006003005010002",
+      "reason": "recent_promoted_not_due"
+    },
+    {
+      "source_name": "전주시 노인복지정책",
+      "url": "https://www.jeonju.go.kr/index.9is?contentUid=ff8080818990c349018b041aa6f93ac0",
       "reason": "recent_promoted_not_due"
     }
   ],

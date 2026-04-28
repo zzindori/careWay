@@ -87,6 +87,9 @@ jobs:
       - name: 지역 큐 SQL 마이그레이션 적용
         run: python batch/apply_sql_migrations.py
 
+      - name: 전국 시군구 DB 큐 자동 시드
+        run: python batch/seed_all_sigungu_queue.py
+
       - name: 지역 복지 수집 실행
         if: github.event_name != 'schedule' || github.event.schedule == '15 */3 * * *'
         run: python batch/local_welfare_batch.py

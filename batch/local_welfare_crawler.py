@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import html as html_lib
 import json
+import os
 import re
+from collections import deque
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
@@ -20,6 +22,9 @@ from bs4 import BeautifulSoup, Comment
 
 REQUEST_TIMEOUT_SECONDS = 10
 BROWSER_TIMEOUT_MS = 15000
+ELDERLY_DISCOVERY_MAX_DEPTH = int(os.environ.get("LOCAL_WELFARE_DISCOVERY_MAX_DEPTH", "2"))
+ELDERLY_DISCOVERY_MAX_PAGES_PER_SEED = int(os.environ.get("LOCAL_WELFARE_DISCOVERY_MAX_PAGES_PER_SEED", "30"))
+ELDERLY_DISCOVERY_MAX_LINKS_PER_PAGE = int(os.environ.get("LOCAL_WELFARE_DISCOVERY_MAX_LINKS_PER_PAGE", "200"))
 
 
 WEB_HEADERS = {
@@ -401,6 +406,41 @@ def _make_elderly_target(source: dict[str, Any], url: str, title: str) -> dict[s
     }
 
 
+def _collect_elderly_discovery_links(seed_url: str) -> list[tuple[str, str]]:
+    """Collect candidate links within the same municipal domain via bounded BFS."""
+    queue: deque[tuple[str, int]] = deque([(seed_url, 0)])
+    visited: set[str] = {_url_key(seed_url)}
+    discovered_links: list[tuple[str, str]] = []
+    pages_fetched = 0
+
+    while queue and pages_fetched < ELDERLY_DISCOVERY_MAX_PAGES_PER_SEED:
+        current_url, depth = queue.popleft()
+        try:
+            html = _fetch_html(current_url)
+            soup = BeautifulSoup(html, "html.parser")
+        except Exception:
+            continue
+        pages_fetched += 1
+
+        anchors = soup.find_all("a")
+        for anchor in anchors[:ELDERLY_DISCOVERY_MAX_LINKS_PER_PAGE]:
+            title = _normalize_text(anchor.get_text(" ", strip=True))
+            href = anchor.get("href") or ""
+            if not title or not href:
+                continue
+            url = urljoin(current_url, href)
+            if not _is_allowed_discovery_url(url, seed_url):
+                continue
+            key = _url_key(url)
+            if key in visited:
+                continue
+            visited.add(key)
+            discovered_links.append((url, title))
+            if depth < ELDERLY_DISCOVERY_MAX_DEPTH:
+                queue.append((url, depth + 1))
+    return discovered_links
+
+
 def discover_elderly_region_targets(
     limit_per_region: int = 8,
     region_sources: list[dict[str, Any]] | None = None,
@@ -427,12 +467,7 @@ def discover_elderly_region_targets(
                     seen_urls.add(key)
                     candidates.append((seed_score, _make_elderly_target(source, seed_url, seed_title)))
 
-            for anchor in soup.find_all("a"):
-                title = _normalize_text(anchor.get_text(" ", strip=True))
-                href = anchor.get("href") or ""
-                if not title or not href:
-                    continue
-                url = urljoin(seed_url, href)
+            for url, title in _collect_elderly_discovery_links(seed_url):
                 key = _url_key(url)
                 if key in seen_urls or not _is_allowed_discovery_url(url, seed_url):
                     continue

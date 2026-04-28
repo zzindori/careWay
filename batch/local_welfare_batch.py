@@ -5,6 +5,7 @@ CareWay local welfare crawler batch.
 Runs separately from the national welfare API/AI classification pipeline.
 GitHub Actions should use the Supabase service role key in SUPABASE_SERVICE_KEY
 (not the anon public key) so RLS on staging tables can be bypassed as intended.
+Trigger note: keep workflow smoke-check path active.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 {
-  "started_at": "2026-04-28T12:27:03.500697+00:00",
-  "finished_at": "2026-04-28T12:27:27.044005+00:00",
+  "started_at": "2026-04-28T12:31:19.885541+00:00",
+  "finished_at": "2026-04-28T12:31:41.361359+00:00",
   "target": "",
   "run_profile": "discovery",
   "recheck_days": 30,
@@ -8,15 +8,14 @@
   "supabase_key_role": "service_role",
   "stats": {
     "candidates": 1,
-    "promoted": 0,
-    "held": 1,
+    "promoted": 1,
+    "held": 0,
     "skipped": 9,
     "failed": 0,
     "quota": 0,
     "warnings": 1
   },
-  "promoted": [],
-  "held": [
+  "promoted": [
     {
       "name": "전주시 노인복지정책",
       "category": "living",
@@ -27,8 +26,8 @@
       "inq_place": "",
       "target_age_group": "elderly",
       "service_tags": [
-        "hospital_companion",
-        "mobility"
+        "mobility",
+        "hospital_companion"
       ],
       "requires_ltc_grade": false,
       "requires_alone": false,
@@ -37,21 +36,22 @@
         "전주시",
         "노인복지관",
         "돌봄",
-        "병원동행",
-        "동행",
-        "의료동행",
-        "병원",
         "이동",
         "이동지원",
         "교통지원",
         "차량지원",
-        "택시"
+        "택시",
+        "병원동행",
+        "동행",
+        "의료동행",
+        "병원"
       ],
       "warnings": [
         "missing_phone"
       ]
     }
   ],
+  "held": [],
   "skipped": [
     {
       "source_name": "성남시 노인복지일반현황",

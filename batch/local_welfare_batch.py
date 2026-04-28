@@ -32,7 +32,7 @@ from local_welfare_crawler import (
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://dnnidnqwkjmbssxixpjg.supabase.co")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 WEB_SCRAPE_DELAY = float(os.environ.get("LOCAL_WELFARE_CRAWL_DELAY", "0.5"))
-LOCAL_WELFARE_CRAWL_TARGET = os.environ.get("LOCAL_WELFARE_CRAWL_TARGET", "pilot")
+LOCAL_WELFARE_CRAWL_TARGET = os.environ.get("LOCAL_WELFARE_CRAWL_TARGET", "nationwide")
 LOCAL_WELFARE_REPORT_PATH = os.environ.get("LOCAL_WELFARE_REPORT_PATH", "batch/output/local_welfare_report.json")
 LOCAL_WELFARE_RESET_EXISTING = os.environ.get("LOCAL_WELFARE_RESET_EXISTING", "false").lower() in {"1", "true", "yes"}
 LOCAL_WELFARE_PROMOTE_WARNINGS = os.environ.get("LOCAL_WELFARE_PROMOTE_WARNINGS", "false").lower() in {"1", "true", "yes"}
@@ -762,7 +762,8 @@ def run() -> int:
 
         try:
             warnings = _quality_warnings(payload)
-            can_promote = not warnings or LOCAL_WELFARE_PROMOTE_WARNINGS
+            blocking_warnings = [w for w in warnings if w != "missing_phone"]
+            can_promote = (not blocking_warnings) or LOCAL_WELFARE_PROMOTE_WARNINGS
             status = "promoted" if can_promote else "held"
             _upsert_candidate(supabase, target, page, payload, warnings, status)
             candidates += 1

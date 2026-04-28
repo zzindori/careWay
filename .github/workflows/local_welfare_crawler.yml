@@ -27,7 +27,7 @@ on:
       target:
         description: '수집 대상'
         required: false
-        default: 'pilot'
+        default: 'nationwide'
         type: choice
         options:
           - pilot

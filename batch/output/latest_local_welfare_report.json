@@ -1,22 +1,137 @@
 {
-  "started_at": "2026-04-28T12:45:18.422904+00:00",
-  "finished_at": "2026-04-28T12:45:38.349648+00:00",
+  "started_at": "2026-04-28T12:49:30.136436+00:00",
+  "finished_at": "2026-04-28T12:50:21.669634+00:00",
   "target": "",
   "run_profile": "discovery",
   "recheck_days": 30,
   "reset_existing": false,
   "supabase_key_role": "service_role",
   "stats": {
-    "candidates": 0,
-    "promoted": 0,
-    "held": 0,
-    "skipped": 10,
+    "candidates": 3,
+    "promoted": 2,
+    "held": 1,
+    "skipped": 17,
     "failed": 0,
     "quota": 0,
-    "warnings": 0
+    "warnings": 1
   },
-  "promoted": [],
-  "held": [],
+  "promoted": [
+    {
+      "name": "종로구 종로노인복지시설",
+      "category": "living",
+      "region": "서울",
+      "sub_region": "종로구",
+      "online_url": "https://www.jongno.go.kr/Main.do?menuId=400935&menuNo=400935",
+      "apply_place": "02-742-9500",
+      "inq_place": "02-742-9500",
+      "target_age_group": "elderly",
+      "service_tags": [],
+      "requires_ltc_grade": false,
+      "requires_alone": false,
+      "requires_basic_recipient": false,
+      "search_tokens": [
+        "종로구",
+        "02-742-9500",
+        "02-6247-9900",
+        "1개월",
+        "02-2148-2214",
+        "02-2148-2213",
+        "02-2148-5874"
+      ],
+      "warnings": []
+    },
+    {
+      "name": "종로구 노인일자리사업",
+      "category": "finance",
+      "region": "서울",
+      "sub_region": "종로구",
+      "online_url": "https://www.jongno.go.kr/Main.do?menuNo=1251",
+      "apply_place": "02-762-3374",
+      "inq_place": "02-762-3374",
+      "target_age_group": "elderly",
+      "service_tags": [
+        "meal_support"
+      ],
+      "requires_ltc_grade": false,
+      "requires_alone": false,
+      "requires_basic_recipient": false,
+      "search_tokens": [
+        "종로구",
+        "노인일자리사업",
+        "기초연금",
+        "노인공익활동사업",
+        "공동체사업단",
+        "노인역량활용사업",
+        "취업지원",
+        "급여",
+        "노인일자리",
+        "29만원",
+        "수행기관",
+        "대한노인회",
+        "02-762-3374",
+        "02-6247-9926",
+        "02-6220-8553",
+        "02-744-8886",
+        "02-744-8573",
+        "02-766-8282",
+        "02-3674-7722",
+        "010-3896-9514",
+        "02-2148-3792",
+        "02-2148-5011",
+        "02-2148-5051",
+        "02-2148-5085",
+        "02-2148-5104",
+        "02-2148-5131",
+        "02-2148-5171",
+        "02-2148-5191",
+        "02-2148-5233",
+        "02-2148-5251",
+        "02-2148-5297",
+        "02-2148-5310",
+        "02-2148-5352",
+        "02-2148-5401",
+        "02-2148-5442",
+        "02-2148-5462",
+        "02-2148-5491",
+        "02-2148-5525",
+        "02-2148-2203",
+        "02-2148-5874",
+        "식사",
+        "식사지원",
+        "도시락",
+        "급식"
+      ],
+      "warnings": []
+    }
+  ],
+  "held": [
+    {
+      "name": "종로구 (4.27.) 종로구, 치매예방·세대교류 잇는 ‘어르신 놀이터’ 조성 2026.04.27",
+      "category": "medical",
+      "region": "서울",
+      "sub_region": "종로구",
+      "online_url": "https://www.jongno.go.kr/portal/bbs/selectBoardArticle.do?bbsId=BBSMSTR_000000001618&menuNo=388338&menuId=388338&nttId=250521",
+      "apply_place": "02-2148-1675",
+      "inq_place": "02-2148-1675",
+      "target_age_group": "elderly",
+      "service_tags": [
+        "dementia"
+      ],
+      "requires_ltc_grade": false,
+      "requires_alone": false,
+      "requires_basic_recipient": false,
+      "search_tokens": [
+        "종로구",
+        "치매",
+        "02-2148-1675",
+        "인지",
+        "인지지원"
+      ],
+      "warnings": [
+        "duplicate_region_name"
+      ]
+    }
+  ],
   "skipped": [
     {
       "source_name": "성남시 노인복지일반현황",
@@ -67,6 +182,41 @@
       "source_name": "전주시 노인복지정책",
       "url": "https://www.jeonju.go.kr/index.9is?contentUid=ff8080818990c349018b041aa6f93ac0",
       "reason": "recent_promoted_not_due"
+    },
+    {
+      "source_name": "창원시 요양시설/재가노인복지시설",
+      "url": "http://www.changwon.go.kr/cwportal/depart/11067/13897/13921.web",
+      "reason": "not_service_like"
+    },
+    {
+      "source_name": "창원시 노인일자리지원기관",
+      "url": "http://www.changwon.go.kr/cwportal/depart/11067/13897/13924.web",
+      "reason": "not_service_like"
+    },
+    {
+      "source_name": "창원시 노인복지시책",
+      "url": "http://www.changwon.go.kr/cwportal/depart/11067/14022/14041.web",
+      "reason": "not_service_like"
+    },
+    {
+      "source_name": "창원시 노인일자리 및 사회활동지원사업",
+      "url": "http://www.changwon.go.kr/cwportal/depart/11067/14022/14043.web",
+      "reason": "not_service_like"
+    },
+    {
+      "source_name": "창원시 노인맞춤돌봄서비스",
+      "url": "http://www.changwon.go.kr/cwportal/depart/11067/14022/14050.web",
+      "reason": "not_service_like"
+    },
+    {
+      "source_name": "종로구 어르신시설(경로당) 안내",
+      "url": "https://www.jongno.go.kr/Main.do?menuId=400891&menuNo=400891",
+      "reason": "not_service_like"
+    },
+    {
+      "source_name": "종로구 노인복지시설",
+      "url": "https://www.jongno.go.kr/Main.do?menuId=1596&menuNo=1596",
+      "reason": "not_service_like"
     }
   ],
   "failed": []

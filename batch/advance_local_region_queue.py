@@ -18,6 +18,7 @@ QUEUE_PATH = ROOT / "batch" / "config" / "local_welfare_region_queue.json"
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://dnnidnqwkjmbssxixpjg.supabase.co")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 LOCAL_WELFARE_MAX_ACTIVE_REGIONS = int(os.environ.get("LOCAL_WELFARE_MAX_ACTIVE_REGIONS", "6"))
+LOCAL_WELFARE_ADVANCE_BATCH_SIZE = int(os.environ.get("LOCAL_WELFARE_ADVANCE_BATCH_SIZE", "3"))
 
 
 def _load_json(path: Path) -> dict:
@@ -53,7 +54,7 @@ def _advance_db_queue(report: dict) -> bool:
             .eq("status", "pending")
             .order("priority", desc=False)
             .order("id", desc=False)
-            .limit(1)
+            .limit(max(1, LOCAL_WELFARE_ADVANCE_BATCH_SIZE))
             .execute()
             .data
             or []
@@ -71,32 +72,40 @@ def _advance_db_queue(report: dict) -> bool:
             .data
             or []
         )
-        # Keep active regions in a fixed-size window so nationwide rollout keeps progressing.
-        if len(active_rows) >= LOCAL_WELFARE_MAX_ACTIVE_REGIONS:
-            oldest_active = active_rows[-1]
+        available_slots = max(0, LOCAL_WELFARE_MAX_ACTIVE_REGIONS - len(active_rows))
+        promote_count = min(len(pending), available_slots + len(active_rows))
+        if promote_count <= 0:
+            print("No available active slots and no active rows to rotate.")
+            return True
+
+        pause_count = max(0, promote_count - available_slots)
+        if pause_count > 0:
+            to_pause = active_rows[-pause_count:]
+            for row in to_pause:
+                (
+                    supabase.table("local_welfare_region_queue")
+                    .update({"status": "paused"})
+                    .eq("id", row["id"])
+                    .execute()
+                )
+                print(
+                    "Paused active region to free slot: "
+                    f"{row.get('source_prefix', 'unknown')}"
+                )
+
+        for next_region in pending[:promote_count]:
+            update_payload = {
+                "status": "active",
+                "activated_by_report_started_at": report.get("started_at", ""),
+                "activated_by_report_finished_at": report.get("finished_at", ""),
+            }
             (
                 supabase.table("local_welfare_region_queue")
-                .update({"status": "paused"})
-                .eq("id", oldest_active["id"])
+                .update(update_payload)
+                .eq("id", next_region["id"])
                 .execute()
             )
-            print(
-                "Paused active region to free slot: "
-                f"{oldest_active.get('source_prefix', 'unknown')}"
-            )
-        next_region = pending[0]
-        update_payload = {
-            "status": "active",
-            "activated_by_report_started_at": report.get("started_at", ""),
-            "activated_by_report_finished_at": report.get("finished_at", ""),
-        }
-        (
-            supabase.table("local_welfare_region_queue")
-            .update(update_payload)
-            .eq("id", next_region["id"])
-            .execute()
-        )
-        print(f"Advanced DB region queue: {next_region.get('source_prefix', 'unknown')}")
+            print(f"Advanced DB region queue: {next_region.get('source_prefix', 'unknown')}")
         return True
     except Exception as exc:
         print(f"DB queue advance failed, fallback to JSON: {exc}")

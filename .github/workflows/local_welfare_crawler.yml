@@ -86,17 +86,21 @@ jobs:
         run: playwright install --with-deps chromium
 
       - name: 지역 큐 SQL 마이그레이션 적용
+        continue-on-error: true
         run: python batch/apply_sql_migrations.py
 
       - name: 전국 시군구 DB 큐 자동 시드
+        continue-on-error: true
         run: python batch/seed_all_sigungu_queue.py
 
       - name: 지역 복지 수집 실행
         if: github.event_name != 'schedule' || github.event.schedule == '*/10 * * * *'
+        continue-on-error: true
         run: python batch/local_welfare_batch.py
 
       - name: 지역 복지 수집 실행 (월간/분기 재검증)
         if: github.event_name == 'schedule' && (github.event.schedule == '20 3 1 * *' || github.event.schedule == '35 3 1 1,4,7,10 *')
+        continue-on-error: true
         env:
           LOCAL_WELFARE_RUN_PROFILE: 'recheck'
           LOCAL_WELFARE_AUTO_ADVANCE_QUEUE: 'false'

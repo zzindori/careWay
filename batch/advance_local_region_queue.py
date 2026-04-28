@@ -29,8 +29,6 @@ def _load_json(path: Path) -> dict:
 
 def _is_healthy(report: dict) -> bool:
     stats = report.get("stats") or {}
-    held = int(stats.get("held") or 0)
-    warnings = int(stats.get("warnings") or 0)
     candidates = int(stats.get("candidates") or 0)
     skipped = int(stats.get("skipped") or 0)
     failed_items = list(report.get("failed") or [])
@@ -40,7 +38,9 @@ def _is_healthy(report: dict) -> bool:
         if str(item.get("reason") or "") != "fetch_failed"
     ]
     progressed = (candidates + skipped) > 0
-    return len(hard_failed) == 0 and held == 0 and warnings == 0 and progressed
+    # 큐 확장 중에는 경미한 품질 경고(예: missing_phone)로 멈추지 않고,
+    # 치명 실패가 있을 때만 중단한다.
+    return len(hard_failed) == 0 and progressed
 
 
 def _advance_db_queue(report: dict) -> bool:

@@ -1,441 +1,83 @@
 {
-  "started_at": "2026-04-28T15:19:10.953382+00:00",
-  "finished_at": "2026-04-28T15:20:56.509001+00:00",
+  "started_at": "2026-04-28T16:11:32.696095+00:00",
+  "finished_at": "2026-04-28T16:31:48.666632+00:00",
   "target": "",
   "run_profile": "discovery",
   "recheck_days": 30,
   "reset_existing": false,
   "supabase_key_role": "service_role",
   "stats": {
-    "candidates": 11,
-    "promoted": 10,
-    "held": 1,
-    "skipped": 2,
-    "failed": 0,
+    "candidates": 0,
+    "promoted": 0,
+    "held": 0,
+    "skipped": 1,
+    "failed": 9,
     "quota": 0,
-    "warnings": 8
+    "warnings": 0
   },
-  "promoted": [
-    {
-      "name": "정읍시 노인일자리사업",
-      "category": "finance",
-      "region": "전북",
-      "sub_region": "정읍시",
-      "online_url": "https://www.jeongeup.go.kr/index.jeongeup?menuCd=DOM_000000103009006001",
-      "apply_place": "정읍시 노인일자리사업",
-      "inq_place": "",
-      "target_age_group": "elderly",
-      "service_tags": [
-        "meal_support",
-        "mental_health",
-        "financial_support"
-      ],
-      "requires_ltc_grade": true,
-      "requires_alone": false,
-      "requires_basic_recipient": false,
-      "search_tokens": [
-        "정읍시",
-        "노인일자리사업",
-        "장애인",
-        "노인일자리",
-        "노인복지관",
-        "의료",
-        "수당",
-        "취업지원",
-        "대한노인회",
-        "급여",
-        "수행기관",
-        "기초연금",
-        "29만원",
-        "3개월",
-        "11개월",
-        "10개월",
-        "식사",
-        "식사지원",
-        "도시락",
-        "급식",
-        "정신건강",
-        "심리",
-        "상담",
-        "우울",
-        "지원금",
-        "현금지원",
-        "바우처"
-      ],
-      "warnings": [
-        "missing_phone"
-      ]
-    },
-    {
-      "name": "정읍시 노인복지사업",
-      "category": "living",
-      "region": "전북",
-      "sub_region": "정읍시",
-      "online_url": "https://www.jeongeup.go.kr/index.jeongeup?menuCd=DOM_000000103007016000",
-      "apply_place": "정읍시 노인복지사업",
-      "inq_place": "",
-      "target_age_group": "elderly",
-      "service_tags": [
-        "financial_support"
-      ],
-      "requires_ltc_grade": false,
-      "requires_alone": false,
-      "requires_basic_recipient": false,
-      "search_tokens": [
-        "정읍시",
-        "노인복지사업",
-        "대한노인회",
-        "기초연금",
-        "장애인",
-        "급여",
-        "1개월",
-        "지원금",
-        "수당",
-        "현금지원",
-        "바우처"
-      ],
-      "warnings": [
-        "missing_phone"
-      ]
-    },
-    {
-      "name": "정읍시 노인복지시설안내",
-      "category": "living",
-      "region": "전북",
-      "sub_region": "정읍시",
-      "online_url": "https://www.jeongeup.go.kr/index.jeongeup?menuCd=DOM_000000103007006000",
-      "apply_place": "정읍시 노인복지시설안내",
-      "inq_place": "",
-      "target_age_group": "elderly",
-      "service_tags": [
-        "dementia",
-        "home_visit",
-        "meal_support",
-        "daily_care"
-      ],
-      "requires_ltc_grade": false,
-      "requires_alone": true,
-      "requires_basic_recipient": false,
-      "search_tokens": [
-        "정읍시",
-        "대한노인회",
-        "장애인",
-        "치매",
-        "노인복지관",
-        "의료",
-        "인지",
-        "인지지원",
-        "방문",
-        "방문돌봄",
-        "방문요양",
-        "재가방문",
-        "식사",
-        "식사지원",
-        "도시락",
-        "급식",
-        "돌봄",
-        "일상생활",
-        "가사",
-        "요양",
-        "재가"
-      ],
-      "warnings": [
-        "missing_phone"
-      ]
-    },
-    {
-      "name": "정읍시 노인복지시설현황",
-      "category": "living",
-      "region": "전북",
-      "sub_region": "정읍시",
-      "online_url": "https://www.jeongeup.go.kr/index.jeongeup?menuCd=DOM_000000103007007000",
-      "apply_place": "정읍시 노인복지시설현황",
-      "inq_place": "",
-      "target_age_group": "elderly",
-      "service_tags": [
-        "daily_care",
-        "home_visit"
-      ],
-      "requires_ltc_grade": false,
-      "requires_alone": false,
-      "requires_basic_recipient": false,
-      "search_tokens": [
-        "정읍시",
-        "대한노인회",
-        "장애인",
-        "노인복지관",
-        "의료",
-        "돌봄",
-        "일상생활",
-        "가사",
-        "요양",
-        "재가",
-        "방문",
-        "방문돌봄",
-        "방문요양",
-        "재가방문"
-      ],
-      "warnings": [
-        "missing_phone"
-      ]
-    },
-    {
-      "name": "순천시 노인복지",
-      "category": "living",
-      "region": "전남",
-      "sub_region": "순천시",
-      "online_url": "https://www.suncheon.go.kr/kr/welfare/0003",
-      "apply_place": "관할 읍면동 행정복지센터",
-      "inq_place": "",
-      "target_age_group": "elderly",
-      "service_tags": [
-        "financial_support",
-        "daily_care",
-        "meal_support"
-      ],
-      "requires_ltc_grade": true,
-      "requires_alone": true,
-      "requires_basic_recipient": false,
-      "search_tokens": [
-        "순천시",
-        "행정복지센터",
-        "무료급식",
-        "바우처",
-        "의료",
-        "급여",
-        "12만원",
-        "1만원",
-        "돌봄",
-        "수행기관",
-        "기초연금",
-        "장애인",
-        "20만원",
-        "지원금",
-        "수당",
-        "현금지원",
-        "일상생활",
-        "가사",
-        "요양",
-        "재가",
-        "식사",
-        "식사지원",
-        "도시락",
-        "급식"
-      ],
-      "warnings": [
-        "missing_phone"
-      ]
-    },
-    {
-      "name": "순천시 치매안심센터",
-      "category": "medical",
-      "region": "전남",
-      "sub_region": "순천시",
-      "online_url": "https://www.suncheon.go.kr/kr/welfare/0003/0001",
-      "apply_place": "061-749-8888",
-      "inq_place": "061-749-8888",
-      "target_age_group": "elderly",
-      "service_tags": [
-        "medical",
-        "dementia"
-      ],
-      "requires_ltc_grade": false,
-      "requires_alone": false,
-      "requires_basic_recipient": false,
-      "search_tokens": [
-        "순천시",
-        "치매안심센터",
-        "돌봄",
-        "치매",
-        "검진",
-        "061-749-8888",
-        "의료",
-        "진료",
-        "치료",
-        "투약",
-        "인지",
-        "인지지원"
-      ],
-      "warnings": []
-    },
-    {
-      "name": "목포시 노인복지시설",
-      "category": "living",
-      "region": "전남",
-      "sub_region": "목포시",
-      "online_url": "https://www.mokpo.go.kr/www/life_welfare/welfare/old/welfare_facility",
-      "apply_place": "061-285-8900",
-      "inq_place": "061-285-8900",
-      "target_age_group": "elderly",
-      "service_tags": [],
-      "requires_ltc_grade": false,
-      "requires_alone": false,
-      "requires_basic_recipient": false,
-      "search_tokens": [
-        "목포시",
-        "장애인",
-        "061-285-8900",
-        "061-245-2480",
-        "061-245-6500",
-        "070-4117-3503",
-        "061-282-5446",
-        "061-287-7997",
-        "061-280-8181",
-        "061-277-5011",
-        "061-278-0003",
-        "061-274-2005",
-        "061-245-1007",
-        "061-281-9141",
-        "061-276-9996",
-        "061-247-0061",
-        "061-285-7114",
-        "061-242-6421"
-      ],
-      "warnings": []
-    },
-    {
-      "name": "목포시 노인일자리사업",
-      "category": "finance",
-      "region": "전남",
-      "sub_region": "목포시",
-      "online_url": "https://www.mokpo.go.kr/www/life_welfare/welfare/old/welfare_measurement/job",
-      "apply_place": "061-270-8816",
-      "inq_place": "061-270-8816",
-      "target_age_group": "elderly",
-      "service_tags": [
-        "financial_support"
-      ],
-      "requires_ltc_grade": true,
-      "requires_alone": false,
-      "requires_basic_recipient": false,
-      "search_tokens": [
-        "목포시",
-        "노인일자리사업",
-        "장애인",
-        "노인공익활동사업",
-        "의료",
-        "돌봄",
-        "취업지원",
-        "노인역량활용사업",
-        "활동비",
-        "공동체사업단",
-        "급여",
-        "기초연금",
-        "노인일자리",
-        "061-270-8816",
-        "지원금",
-        "수당",
-        "현금지원",
-        "바우처"
-      ],
-      "warnings": []
-    },
-    {
-      "name": "목포시 노인맞춤돌봄서비스",
-      "category": "care",
-      "region": "전남",
-      "sub_region": "목포시",
-      "online_url": "https://www.mokpo.go.kr/www/life_welfare/welfare/old/welfare_measurement/care_service",
-      "apply_place": "061-270-8576",
-      "inq_place": "061-270-8576",
-      "target_age_group": "elderly",
-      "service_tags": [
-        "daily_care"
-      ],
-      "requires_ltc_grade": false,
-      "requires_alone": false,
-      "requires_basic_recipient": false,
-      "search_tokens": [
-        "목포시",
-        "장애인",
-        "노인복지관",
-        "돌봄",
-        "수행기관",
-        "기초연금",
-        "노인일자리",
-        "061-270-8576",
-        "일상생활",
-        "가사",
-        "요양",
-        "재가"
-      ],
-      "warnings": []
-    },
-    {
-      "name": "구미시 노인복지",
-      "category": "living",
-      "region": "경북",
-      "sub_region": "구미시",
-      "online_url": "https://www.gumi.go.kr/well/wfProgrm/view.do?key=2505131319478&wfProgrmSn=39&pageIndex=1&sc=&sw=%EB%85%B8%EC%9D%B8",
-      "apply_place": "구미시 노인복지",
-      "inq_place": "",
-      "target_age_group": "elderly",
-      "service_tags": [
-        "dementia"
-      ],
-      "requires_ltc_grade": false,
-      "requires_alone": false,
-      "requires_basic_recipient": false,
-      "search_tokens": [
-        "구미시",
-        "치매",
-        "인지",
-        "인지지원"
-      ],
-      "warnings": [
-        "missing_phone"
-      ]
-    }
-  ],
-  "held": [
-    {
-      "name": "정읍시 (사)대한노인회 정읍시지회",
-      "category": "living",
-      "region": "전북",
-      "sub_region": "정읍시",
-      "online_url": "https://www.jeongeup.go.kr/index.jeongeup?menuCd=DOM_000000103007008001",
-      "apply_place": "정읍시 (사)대한노인회 정읍시지회",
-      "inq_place": "",
-      "target_age_group": "elderly",
-      "service_tags": [
-        "meal_support",
-        "mental_health"
-      ],
-      "requires_ltc_grade": false,
-      "requires_alone": false,
-      "requires_basic_recipient": false,
-      "search_tokens": [
-        "정읍시",
-        "대한노인회",
-        "정읍시지회",
-        "장애인",
-        "노인일자리",
-        "식사",
-        "식사지원",
-        "도시락",
-        "급식",
-        "정신건강",
-        "심리",
-        "상담",
-        "우울"
-      ],
-      "warnings": [
-        "duplicate_region_name",
-        "missing_phone"
-      ]
-    }
-  ],
+  "promoted": [],
+  "held": [],
   "skipped": [
     {
-      "source_name": "순천시 노인복지관",
-      "url": "https://www.suncheon.go.kr/silver",
-      "reason": "not_service_like"
-    },
-    {
-      "source_name": "순천시 노인복지관",
-      "url": "http://www.suncheon.go.kr/silver/",
-      "reason": "not_service_like"
+      "source_name": "구미시 노인복지현황",
+      "url": "https://www.gumi.go.kr/well/wfProgrm/view.do?key=2505131319478&wfProgrmSn=39&pageIndex=1&sc=&sw=%EB%85%B8%EC%9D%B8",
+      "reason": "recent_promoted_not_due"
     }
   ],
-  "failed": []
+  "failed": [
+    {
+      "source_name": "충주시 ├ 노인복지과",
+      "url": "https://www.chungju.go.kr/www/contents.do?key=2635",
+      "reason": "upsert_failed",
+      "error": "{'message': \"Could not find the 'failure_reason' column of 'local_welfare_candidates' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
+    },
+    {
+      "source_name": "천안시 노인복지업무",
+      "url": "https://www.cheonan.go.kr/seobuk/sub02_01_02.do",
+      "reason": "upsert_failed",
+      "error": "{'message': \"Could not find the 'failure_reason' column of 'local_welfare_candidates' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
+    },
+    {
+      "source_name": "군산시 노인일자리 어르신과 함께하는 타운홀미팅 Q&A(2025.11.25...",
+      "url": "https://www.gunsan.go.kr/petition/m560/view/9246945",
+      "reason": "upsert_failed",
+      "error": "{'message': \"Could not find the 'failure_reason' column of 'local_welfare_candidates' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
+    },
+    {
+      "source_name": "군산시 노인일자리 어르신과 함께하는 타운홀미팅 Q&A(2025.11.17...",
+      "url": "https://www.gunsan.go.kr/petition/m560/view/9246944",
+      "reason": "upsert_failed",
+      "error": "{'message': \"Could not find the 'failure_reason' column of 'local_welfare_candidates' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
+    },
+    {
+      "source_name": "군산시 - 노인복지",
+      "url": "https://www.gunsan.go.kr/main/m162",
+      "reason": "upsert_failed",
+      "error": "{'message': \"Could not find the 'failure_reason' column of 'local_welfare_candidates' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
+    },
+    {
+      "source_name": "익산시 노인복지과",
+      "url": "https://www.iksan.go.kr/index.do?menuUid=ff808081990415330199048ff2470637&dept_category=ff80808199dd1d7d0199e1e3bbd80f00",
+      "reason": "upsert_failed",
+      "error": "{'message': \"Could not find the 'failure_reason' column of 'local_welfare_candidates' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
+    },
+    {
+      "source_name": "정읍시 치매안심센터 프로그램 안내",
+      "url": "https://www.jeongeup.go.kr/index.jeongeup?menuCd=DOM_000000704004003000",
+      "reason": "upsert_failed",
+      "error": "{'message': \"Could not find the 'failure_reason' column of 'local_welfare_candidates' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
+    },
+    {
+      "source_name": "목포시 목포시 치매안심센터",
+      "url": "https://www.mokpo.go.kr/health/health_service/health_promotion/dementia",
+      "reason": "upsert_failed",
+      "error": "{'message': \"Could not find the 'failure_reason' column of 'local_welfare_candidates' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
+    },
+    {
+      "source_name": "김해시 관계없음 요양보호사 주식회사 하정재가노인복지센터 경남 김해시 시급 10320원 ~ 13000원",
+      "url": "https://www.gimhae.go.kr/job/html/sub/01_01.jsp?amode=view&wantedAuthNo=KEC0802604280001&infoSvc=VALIDATION",
+      "reason": "upsert_failed",
+      "error": "{'message': \"Could not find the 'failure_reason' column of 'local_welfare_candidates' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
+    }
+  ]
 }

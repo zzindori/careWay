@@ -38,6 +38,11 @@ LOCAL_WELFARE_RESET_EXISTING = os.environ.get("LOCAL_WELFARE_RESET_EXISTING", "f
 LOCAL_WELFARE_PROMOTE_WARNINGS = os.environ.get("LOCAL_WELFARE_PROMOTE_WARNINGS", "false").lower() in {"1", "true", "yes"}
 LOCAL_WELFARE_RUN_PROFILE = os.environ.get("LOCAL_WELFARE_RUN_PROFILE", "discovery").strip().lower() or "discovery"
 LOCAL_WELFARE_RECHECK_DAYS = int(os.environ.get("LOCAL_WELFARE_RECHECK_DAYS", "30"))
+LOCAL_WELFARE_INCLUDE_PILOT = os.environ.get("LOCAL_WELFARE_INCLUDE_PILOT", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 
 ALLOWED_SERVICE_TAGS = {
     "dementia",
@@ -699,7 +704,10 @@ def run() -> int:
     if discovered_targets:
         print(f"  지역 노인복지 후보 발견: {len(discovered_targets)}건")
 
-    targets = PILOT_LOCAL_TARGETS + discovered_targets
+    include_pilot_targets = LOCAL_WELFARE_INCLUDE_PILOT or LOCAL_WELFARE_CRAWL_TARGET == "pilot"
+    if include_pilot_targets:
+        print(f"  파일럿 고정 타깃 포함: {len(PILOT_LOCAL_TARGETS)}건")
+    targets = (PILOT_LOCAL_TARGETS if include_pilot_targets else []) + discovered_targets
     seen_urls = set()
     for target in targets:
         if target["url"] in seen_urls:

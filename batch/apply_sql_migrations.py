@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = [
     ROOT / "supabase" / "migrations" / "20260427143000_create_local_welfare_region_queue.sql",
     ROOT / "supabase" / "migrations" / "20260427152000_seed_nationwide_region_queue.sql",
+    ROOT / "supabase" / "migrations" / "20260429003500_add_failure_reason_to_local_welfare_candidates.sql",
 ]
 
 

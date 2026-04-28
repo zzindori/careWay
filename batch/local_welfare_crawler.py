@@ -699,23 +699,38 @@ def _fetch_with_browser(target: dict[str, Any]) -> dict[str, Any] | None:
             page.goto(target["url"], wait_until="domcontentloaded", timeout=BROWSER_TIMEOUT_MS)
             html = page.content()
             browser.close()
-        return _parse_local_html(target, html)
+        parsed = _parse_local_html(target, html)
+        if parsed:
+            return parsed
+        return {"error_reason": "empty_main_text"}
     except Exception as exc:
         print(f"  ⚠ 브라우저 fallback 실패 ({target['source_name']}): {exc}")
         return None
 
 
 def fetch_local_pilot_page(target: dict[str, Any]) -> dict[str, Any] | None:
+    lower_url = str(target.get("url") or "").lower()
+    if any(lower_url.endswith(ext) for ext in [".pdf", ".hwp", ".hwpx", ".zip"]):
+        return {"error_reason": "unsupported_document_url"}
     try:
         response = requests.get(target["url"], headers=WEB_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS)
         if response.status_code == 429:
             return {"quota_exceeded": True}
         response.raise_for_status()
+        content_type = (response.headers.get("content-type") or "").lower()
+        if any(fmt in content_type for fmt in ["application/pdf", "application/haansofthwp", "application/x-hwp"]):
+            return {"error_reason": "unsupported_document_content"}
         response.encoding = response.apparent_encoding or response.encoding
-        return _parse_local_html(target, response.text)
+        parsed = _parse_local_html(target, response.text)
+        if parsed:
+            return parsed
+        page = _fetch_with_browser(target)
+        if page:
+            return page
+        return {"error_reason": "empty_main_text"}
     except Exception as exc:
         page = _fetch_with_browser(target)
         if page:
             return page
         print(f"  ⚠ 파일럿 페이지 수집 실패 ({target['source_name']}): {exc}")
-        return None
+        return {"error_reason": "fetch_failed"}

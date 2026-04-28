@@ -440,7 +440,14 @@ def _report_snapshot(payload: dict, warnings: list[str]) -> dict:
     }
 
 
-def _build_candidate_record(target: dict, page: dict, payload: dict | None, warnings: list[str], status: str) -> dict:
+def _build_candidate_record(
+    target: dict,
+    page: dict,
+    payload: dict | None,
+    warnings: list[str],
+    status: str,
+    failure_reason: str | None = None,
+) -> dict:
     return {
         "source_url": target["url"],
         "source_name": target["source_name"],
@@ -454,13 +461,22 @@ def _build_candidate_record(target: dict, page: dict, payload: dict | None, warn
         "payload": payload,
         "quality_warnings": warnings,
         "status": status,
+        "failure_reason": (failure_reason or "").strip() or None,
         "promoted_service_url": payload.get("online_url") if payload and status == "promoted" else None,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
-def _upsert_candidate(supabase, target: dict, page: dict, payload: dict | None, warnings: list[str], status: str) -> None:
-    record = _build_candidate_record(target, page, payload, warnings, status)
+def _upsert_candidate(
+    supabase,
+    target: dict,
+    page: dict,
+    payload: dict | None,
+    warnings: list[str],
+    status: str,
+    failure_reason: str | None = None,
+) -> None:
+    record = _build_candidate_record(target, page, payload, warnings, status, failure_reason)
     supabase.table("local_welfare_candidates").upsert(record, on_conflict="source_url").execute()
 
 
@@ -729,15 +745,61 @@ def run() -> int:
         if not page:
             print("⚠ 실패")
             fail += 1
+            try:
+                _upsert_candidate(
+                    supabase,
+                    target,
+                    {},
+                    None,
+                    ["fetch_failed"],
+                    "failed",
+                    failure_reason="fetch_failed",
+                )
+            except Exception as exc:
+                print(f" 후보저장실패={exc}")
             report["failed"].append({
                 "source_name": target["source_name"],
                 "url": target["url"],
                 "reason": "fetch_failed",
             })
             continue
+        page_error = str(page.get("error_reason") or "").strip()
+        if page_error:
+            print(f"↷ 수집불가({page_error})")
+            fail += 1
+            try:
+                _upsert_candidate(
+                    supabase,
+                    target,
+                    page,
+                    None,
+                    [page_error],
+                    "failed",
+                    failure_reason=page_error,
+                )
+            except Exception as exc:
+                print(f" 후보저장실패={exc}")
+            report["failed"].append({
+                "source_name": target["source_name"],
+                "url": target["url"],
+                "reason": page_error,
+            })
+            continue
         if page.get("quota_exceeded"):
             print("⚠ 429 중단")
             quota += 1
+            try:
+                _upsert_candidate(
+                    supabase,
+                    target,
+                    page,
+                    None,
+                    ["quota_exceeded"],
+                    "failed",
+                    failure_reason="quota_exceeded",
+                )
+            except Exception as exc:
+                print(f" 후보저장실패={exc}")
             report["failed"].append({
                 "source_name": target["source_name"],
                 "url": target["url"],
@@ -783,6 +845,18 @@ def run() -> int:
         except Exception as exc:
             print(f"❌ {exc}")
             fail += 1
+            try:
+                _upsert_candidate(
+                    supabase,
+                    target,
+                    page,
+                    payload if "payload" in locals() else None,
+                    ["upsert_failed"],
+                    "failed",
+                    failure_reason="upsert_failed",
+                )
+            except Exception as record_exc:
+                print(f" 후보저장실패={record_exc}")
             report["failed"].append({
                 "source_name": target["source_name"],
                 "url": target["url"],

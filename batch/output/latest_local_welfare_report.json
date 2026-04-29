@@ -1,6 +1,6 @@
 {
-  "started_at": "2026-04-29T06:41:35.600512+00:00",
-  "finished_at": "2026-04-29T06:58:59.151537+00:00",
+  "started_at": "2026-04-29T07:34:44.240270+00:00",
+  "finished_at": "2026-04-29T07:56:36.126771+00:00",
   "target": "",
   "run_profile": "discovery",
   "recheck_days": 30,
@@ -11,7 +11,7 @@
     "promoted": 0,
     "held": 0,
     "skipped": 1,
-    "failed": 9,
+    "failed": 10,
     "quota": 0,
     "warnings": 0
   },
@@ -58,6 +58,12 @@
     {
       "source_name": "익산시 노인복지과",
       "url": "https://www.iksan.go.kr/index.do?menuUid=ff808081990415330199048ff2470637&dept_category=ff80808199dd1d7d0199e1e3bbd80f00",
+      "reason": "upsert_failed",
+      "error": "{'message': \"Could not find the 'failure_reason' column of 'local_welfare_candidates' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
+    },
+    {
+      "source_name": "정읍시 치매안심센터 프로그램 안내",
+      "url": "https://www.jeongeup.go.kr/index.jeongeup?menuCd=DOM_000000704004003000",
       "reason": "upsert_failed",
       "error": "{'message': \"Could not find the 'failure_reason' column of 'local_welfare_candidates' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
     },

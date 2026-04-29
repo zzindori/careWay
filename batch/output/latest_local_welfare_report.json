@@ -1,6 +1,6 @@
 {
-  "started_at": "2026-04-29T08:32:22.543346+00:00",
-  "finished_at": "2026-04-29T08:49:10.030285+00:00",
+  "started_at": "2026-04-29T09:22:14.025077+00:00",
+  "finished_at": "2026-04-29T09:42:43.240277+00:00",
   "target": "",
   "run_profile": "discovery",
   "recheck_days": 30,
@@ -10,8 +10,8 @@
     "candidates": 0,
     "promoted": 0,
     "held": 0,
-    "skipped": 1,
-    "failed": 9,
+    "skipped": 2,
+    "failed": 8,
     "quota": 0,
     "warnings": 0
   },
@@ -19,18 +19,17 @@
   "held": [],
   "skipped": [
     {
+      "source_name": "충주시 ├ 노인복지과",
+      "url": "https://www.chungju.go.kr/www/contents.do?key=2635",
+      "reason": "not_service_like"
+    },
+    {
       "source_name": "구미시 노인복지현황",
       "url": "https://www.gumi.go.kr/well/wfProgrm/view.do?key=2505131319478&wfProgrmSn=39&pageIndex=1&sc=&sw=%EB%85%B8%EC%9D%B8",
       "reason": "recent_promoted_not_due"
     }
   ],
   "failed": [
-    {
-      "source_name": "충주시 ├ 노인복지과",
-      "url": "https://www.chungju.go.kr/www/contents.do?key=2635",
-      "reason": "upsert_failed",
-      "error": "{'message': \"Could not find the 'failure_reason' column of 'local_welfare_candidates' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
-    },
     {
       "source_name": "천안시 노인복지업무",
       "url": "https://www.cheonan.go.kr/seobuk/sub02_01_02.do",

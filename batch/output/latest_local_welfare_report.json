@@ -1,6 +1,6 @@
 {
-  "started_at": "2026-04-29T01:16:13.246381+00:00",
-  "finished_at": "2026-04-29T01:39:06.661153+00:00",
+  "started_at": "2026-04-29T02:04:55.440608+00:00",
+  "finished_at": "2026-04-29T02:26:19.624358+00:00",
   "target": "",
   "run_profile": "discovery",
   "recheck_days": 30,
@@ -11,7 +11,7 @@
     "promoted": 0,
     "held": 0,
     "skipped": 1,
-    "failed": 9,
+    "failed": 10,
     "quota": 0,
     "warnings": 0
   },
@@ -70,6 +70,12 @@
     {
       "source_name": "목포시 목포시 치매안심센터",
       "url": "https://www.mokpo.go.kr/health/health_service/health_promotion/dementia",
+      "reason": "upsert_failed",
+      "error": "{'message': \"Could not find the 'failure_reason' column of 'local_welfare_candidates' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
+    },
+    {
+      "source_name": "김해시 경력 요양보호사 모집 토마토재가노인복지센터 경남 김해시 시급 10320원 ~ 13000원",
+      "url": "https://www.gimhae.go.kr/job/html/sub/01_01.jsp?amode=view&wantedAuthNo=K131312604290025&infoSvc=VALIDATION",
       "reason": "upsert_failed",
       "error": "{'message': \"Could not find the 'failure_reason' column of 'local_welfare_candidates' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
     },

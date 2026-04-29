@@ -1,6 +1,6 @@
 {
-  "started_at": "2026-04-29T10:08:42.661245+00:00",
-  "finished_at": "2026-04-29T10:26:18.897321+00:00",
+  "started_at": "2026-04-29T10:49:49.572798+00:00",
+  "finished_at": "2026-04-29T11:17:08.196776+00:00",
   "target": "",
   "run_profile": "discovery",
   "recheck_days": 30,
@@ -10,8 +10,8 @@
     "candidates": 0,
     "promoted": 0,
     "held": 0,
-    "skipped": 1,
-    "failed": 8,
+    "skipped": 6,
+    "failed": 11,
     "quota": 0,
     "warnings": 0
   },
@@ -19,12 +19,55 @@
   "held": [],
   "skipped": [
     {
+      "source_name": "충주시 번호 20 제목 (본관06~07월)본관06기 시니어 스마트폰중급&AI(월수13:30~15:30)-추가모집중 ",
+      "url": "https://www.chungju.go.kr/rev/reserve/99?action=read&action-value=9b59978252d450c4b0607d89f74dd96a",
+      "reason": "not_service_like"
+    },
+    {
+      "source_name": "충주시 번호 18 제목 (본관06~07월)본관07기 시니어 컴퓨터기초인터넷&AI(화목09:30~11:30)-추가모집",
+      "url": "https://www.chungju.go.kr/rev/reserve/99?action=read&action-value=11acfd9972835646e8fc4fb6243078a7",
+      "reason": "not_service_like"
+    },
+    {
+      "source_name": "충주시 번호 17 제목 (남부06~07월)남부07기 시니어 컴퓨터기초인터넷&AI(화목09:30~11:30)-추가모집",
+      "url": "https://www.chungju.go.kr/rev/reserve/99?action=read&action-value=bf18c7cea541d1ad2f1c19d0c481fe98",
+      "reason": "not_service_like"
+    },
+    {
+      "source_name": "충주시 번호 16 제목 (남부06~07월)남부08기 시니어 스마트폰중급&AI(화목13:30~15:30)-추가모집중 ",
+      "url": "https://www.chungju.go.kr/rev/reserve/99?action=read&action-value=61d394220fe46b4a6995cc40af744fec",
+      "reason": "not_service_like"
+    },
+    {
+      "source_name": "충주시 번호 15 제목 (동부06~07월)동부07기 시니어 컴퓨터기초인터넷&AI(화목09:30~11:30)-추가모집",
+      "url": "https://www.chungju.go.kr/rev/reserve/99?action=read&action-value=28a96243fb100738749f872b468a7831",
+      "reason": "not_service_like"
+    },
+    {
       "source_name": "구미시 노인복지현황",
       "url": "https://www.gumi.go.kr/well/wfProgrm/view.do?key=2505131319478&wfProgrmSn=39&pageIndex=1&sc=&sw=%EB%85%B8%EC%9D%B8",
       "reason": "recent_promoted_not_due"
     }
   ],
   "failed": [
+    {
+      "source_name": "충주시 노인복지관 본관",
+      "url": "https://www.chungju.go.kr/rev/reserve/99?document_category_srl=61",
+      "reason": "upsert_failed",
+      "error": "{'message': \"Could not find the 'failure_reason' column of 'local_welfare_candidates' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
+    },
+    {
+      "source_name": "충주시 노인복지관 남부분관",
+      "url": "https://www.chungju.go.kr/rev/reserve/99?document_category_srl=62",
+      "reason": "upsert_failed",
+      "error": "{'message': \"Could not find the 'failure_reason' column of 'local_welfare_candidates' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
+    },
+    {
+      "source_name": "충주시 노인복지관 동부분관",
+      "url": "https://www.chungju.go.kr/rev/reserve/99?document_category_srl=65",
+      "reason": "upsert_failed",
+      "error": "{'message': \"Could not find the 'failure_reason' column of 'local_welfare_candidates' in the schema cache\", 'code': 'PGRST204', 'hint': None, 'details': None}"
+    },
     {
       "source_name": "천안시 노인복지업무",
       "url": "https://www.cheonan.go.kr/seobuk/sub02_01_02.do",

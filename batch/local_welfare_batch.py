@@ -478,7 +478,20 @@ def _upsert_candidate(
     failure_reason: str | None = None,
 ) -> None:
     record = _build_candidate_record(target, page, payload, warnings, status, failure_reason)
-    supabase.table("local_welfare_candidates").upsert(record, on_conflict="source_url").execute()
+    try:
+        supabase.table("local_welfare_candidates").upsert(record, on_conflict="source_url").execute()
+    except Exception as exc:
+        # DB 스키마 반영 지연 등으로 failure_reason 컬럼이 아직 없으면
+        # 해당 필드만 제거하고 재시도해 수집 진행이 멈추지 않게 한다.
+        if "failure_reason" in str(exc):
+            fallback_record = dict(record)
+            fallback_record.pop("failure_reason", None)
+            supabase.table("local_welfare_candidates").upsert(
+                fallback_record,
+                on_conflict="source_url",
+            ).execute()
+            return
+        raise
 
 
 def _fetch_recent_local_promoted_urls(supabase, days: int) -> set[str]:

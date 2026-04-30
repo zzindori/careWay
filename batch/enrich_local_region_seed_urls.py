@@ -44,6 +44,30 @@ SEARCH_TERMS = [
     "{sub_region} 구청",
 ]
 
+# High-confidence manual fallback for frequently blocked/poorly indexed regions.
+# Used only when web search candidates are empty or invalid.
+MANUAL_SEED_URLS: dict[str, str] = {
+    "용산구": "https://www.yongsan.go.kr",
+    "성동구": "https://www.sd.go.kr",
+    "광진구": "https://www.gwangjin.go.kr",
+    "동대문구": "https://www.ddm.go.kr",
+    "중랑구": "https://www.jungnang.go.kr",
+    "성북구": "https://www.sb.go.kr",
+    "도봉구": "https://www.dobong.go.kr",
+    "노원구": "https://www.nowon.kr",
+    "은평구": "https://www.ep.go.kr",
+    "서대문구": "https://www.sdm.go.kr",
+    "마포구": "https://www.mapo.go.kr",
+    "양천구": "https://www.yangcheon.go.kr",
+    "강서구": "https://www.gangseo.seoul.kr",
+    "구로구": "https://www.guro.go.kr",
+    "금천구": "https://www.geumcheon.go.kr",
+    "영등포구": "https://www.ydp.go.kr",
+    "동작구": "https://www.dongjak.go.kr",
+    "관악구": "https://www.gwanak.go.kr",
+    "서초구": "https://www.seocho.go.kr",
+}
+
 
 def _fetch_missing_seed_rows(supabase) -> list[dict[str, Any]]:
     rows = (
@@ -63,7 +87,7 @@ def _fetch_missing_seed_rows(supabase) -> list[dict[str, Any]]:
 def _extract_search_result_urls(html: str) -> list[str]:
     soup = BeautifulSoup(html, "html.parser")
     urls: list[str] = []
-    for a in soup.select("a.result__a, a[href*='uddg=']"):
+    for a in soup.select("a[href]"):
         href = (a.get("href") or "").strip()
         if not href:
             continue
@@ -71,7 +95,20 @@ def _extract_search_result_urls(html: str) -> list[str]:
             parsed = urlparse(href)
             uddg = parse_qs(parsed.query).get("uddg", [""])[0]
             href = unquote(uddg) if uddg else href
+        if href.startswith("//"):
+            href = f"https:{href}"
         if href.startswith("http://") or href.startswith("https://"):
+            host = (urlparse(href).netloc or "").lower()
+            if any(
+                bad in host
+                for bad in [
+                    "duckduckgo.com",
+                    "youtube.com",
+                    "facebook.com",
+                    "instagram.com",
+                ]
+            ):
+                continue
             urls.append(href)
     # preserve order, dedupe
     deduped: list[str] = []
@@ -148,6 +185,19 @@ def _pick_best_url(sub_region: str, urls: list[str]) -> str | None:
     return None
 
 
+def _validate_html_url(url: str) -> str | None:
+    try:
+        resp = requests.get(url, headers=WEB_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=True)
+        ctype = (resp.headers.get("content-type") or "").lower()
+        if resp.status_code >= 400:
+            return None
+        if "text/html" not in ctype and "application/xhtml+xml" not in ctype:
+            return None
+        return resp.url
+    except Exception:
+        return None
+
+
 def main() -> int:
     if not SUPABASE_SERVICE_KEY:
         print("SUPABASE_SERVICE_KEY is not set. Skip seed URL enrichment.")
@@ -170,6 +220,10 @@ def main() -> int:
             continue
         urls = _search_candidate_urls(sub_region)
         best = _pick_best_url(sub_region, urls)
+        if not best:
+            manual = MANUAL_SEED_URLS.get(sub_region)
+            if manual:
+                best = _validate_html_url(manual)
         if not best:
             print(f"Seed URL not found: {sub_region}")
             continue

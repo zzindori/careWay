@@ -122,12 +122,19 @@ jobs:
         if: always()
         run: python batch/advance_local_region_queue.py
 
+      - name: 전국 진행률 스냅샷 생성
+        if: always()
+        continue-on-error: true
+        run: python batch/local_welfare_progress_snapshot.py
+
       - name: 수집 리포트 업로드
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: local-welfare-report
-          path: batch/output/local_welfare_report.json
+          path: |
+            batch/output/local_welfare_report.json
+            batch/output/local_welfare_progress.json
           if-no-files-found: warn
 
       - name: 최신 수집 리포트 커밋
@@ -138,9 +145,12 @@ jobs:
             exit 0
           fi
           cp batch/output/local_welfare_report.json batch/output/latest_local_welfare_report.json
+          if [ -f batch/output/local_welfare_progress.json ]; then
+            cp batch/output/local_welfare_progress.json batch/output/latest_local_welfare_progress.json
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add batch/output/latest_local_welfare_report.json batch/config/local_welfare_region_queue.json
+          git add batch/output/latest_local_welfare_report.json batch/output/latest_local_welfare_progress.json batch/config/local_welfare_region_queue.json
           if git diff --cached --quiet; then
             echo "No report changes"
             exit 0

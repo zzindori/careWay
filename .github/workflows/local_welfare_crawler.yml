@@ -11,7 +11,7 @@ on:
       - 'supabase/migrations/**'
       - '.github/workflows/local_welfare_crawler.yml'
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/20 * * * *'
     - cron: '20 3 1 * *'
     - cron: '35 3 1 1,4,7,10 *'
   workflow_dispatch:
@@ -63,8 +63,12 @@ jobs:
       LOCAL_WELFARE_PROMOTE_WARNINGS: ${{ inputs.promote_warnings || 'false' }}
       LOCAL_WELFARE_RUN_PROFILE: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_profile == 'recheck') && 'recheck' || 'discovery' }}
       LOCAL_WELFARE_RECHECK_DAYS: '30'
-      LOCAL_WELFARE_MAX_ACTIVE_REGIONS: '20'
-      LOCAL_WELFARE_ADVANCE_BATCH_SIZE: '10'
+      LOCAL_WELFARE_MAX_ACTIVE_REGIONS: '8'
+      LOCAL_WELFARE_ADVANCE_BATCH_SIZE: '4'
+      LOCAL_WELFARE_LIMIT_PER_REGION: '4'
+      LOCAL_WELFARE_DISCOVERY_MAX_DEPTH: '1'
+      LOCAL_WELFARE_DISCOVERY_MAX_PAGES_PER_SEED: '10'
+      LOCAL_WELFARE_DISCOVERY_MAX_LINKS_PER_PAGE: '80'
       LOCAL_WELFARE_AUTO_ADVANCE_QUEUE: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_profile == 'recheck') && 'false' || 'true' }}
       LOCAL_WELFARE_REPORT_PATH: batch/output/local_welfare_report.json
 
@@ -96,13 +100,13 @@ jobs:
       - name: 전국 시군구 시드 URL 자동 보강
         continue-on-error: true
         env:
-          LOCAL_WELFARE_SEED_ENRICH_LIMIT: '20'
+          LOCAL_WELFARE_SEED_ENRICH_LIMIT: '10'
           LOCAL_WELFARE_SEED_ENRICH_SLEEP_SECONDS: '0.1'
-          LOCAL_WELFARE_SEED_ENRICH_MAX_SECONDS: '150'
+          LOCAL_WELFARE_SEED_ENRICH_MAX_SECONDS: '90'
         run: python batch/enrich_local_region_seed_urls.py
 
       - name: 지역 복지 수집 실행
-        if: github.event_name != 'schedule' || github.event.schedule == '*/10 * * * *'
+        if: github.event_name != 'schedule' || github.event.schedule == '*/20 * * * *'
         continue-on-error: true
         run: python batch/local_welfare_batch.py
 

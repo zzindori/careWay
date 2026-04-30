@@ -38,6 +38,7 @@ LOCAL_WELFARE_RESET_EXISTING = os.environ.get("LOCAL_WELFARE_RESET_EXISTING", "f
 LOCAL_WELFARE_PROMOTE_WARNINGS = os.environ.get("LOCAL_WELFARE_PROMOTE_WARNINGS", "false").lower() in {"1", "true", "yes"}
 LOCAL_WELFARE_RUN_PROFILE = os.environ.get("LOCAL_WELFARE_RUN_PROFILE", "discovery").strip().lower() or "discovery"
 LOCAL_WELFARE_RECHECK_DAYS = int(os.environ.get("LOCAL_WELFARE_RECHECK_DAYS", "30"))
+LOCAL_WELFARE_LIMIT_PER_REGION = int(os.environ.get("LOCAL_WELFARE_LIMIT_PER_REGION", "4"))
 LOCAL_WELFARE_INCLUDE_PILOT = os.environ.get("LOCAL_WELFARE_INCLUDE_PILOT", "").lower() in {
     "1",
     "true",
@@ -715,6 +716,7 @@ def run() -> int:
     if db_region_sources:
         print(f"  DB 활성 지역 큐 사용: {len(db_region_sources)}건")
     discovered_targets = discover_elderly_region_targets(
+        limit_per_region=max(1, LOCAL_WELFARE_LIMIT_PER_REGION),
         region_sources=db_region_sources or None
     )
     if discovered_targets:
